@@ -4,7 +4,7 @@ export const NUM_SEESAWS = 6
 export const MAX_STACK = 8
 export const MATCH_MIN = 3
 
-export const COLORS: Color[] = ['red', 'blue', 'green', 'yellow', 'purple']
+export const COLORS: Color[] = ['red', 'blue', 'green', 'yellow']
 
 export const COLOR_HEX: Record<Color, string> = {
   red: '#FF4455',
@@ -35,6 +35,9 @@ export const BALL_RADIUS = 18
 export const BALL_SPACING = 40 // center-to-center vertical
 export const MAX_ANGLE = Math.PI / 5.5 // ~32°
 export const ANGLE_SCALE = 0.13 // radians per net weight unit
+
+// Minimum weight difference needed to trigger a catapult
+export const CATAPULT_THRESHOLD = 3
 
 // Weight pool (lower weights more frequent)
 export const WEIGHT_POOL = [1, 1, 1, 2, 2, 2, 3, 3, 4, 5]
