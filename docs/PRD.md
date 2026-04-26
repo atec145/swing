@@ -26,6 +26,7 @@ Their core need: a satisfying, low-friction puzzle loop that rewards clever plac
 | P0 (MVP) | Next-ball preview — shows upcoming ball's color and weight | Deployed |
 | P0 (MVP) | Game-over detection — any arm stack reaches 8 balls | Deployed |
 | P0 (MVP) | Restart — button appears on game-over screen | Deployed |
+| P1 | Progressive difficulty — full/half (billiard-style) balls, color count grows with score (#1) | Planned |
 | P1 | High score persistence — save best score across sessions | Planned |
 | P1 | Animations — visual feedback for catapult launches and match clears | Planned |
 | P1 | Sound effects — audio cues for drops, catapults, matches | Planned |
