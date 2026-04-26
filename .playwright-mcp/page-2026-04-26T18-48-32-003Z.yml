@@ -1,0 +1,7 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - heading "Swing" [level=1] [ref=e3]
+    - paragraph [ref=e4]: 3+ same-color balls in a row disappear · heavier side tips the seesaw
+  - button "Open Next.js Dev Tools" [ref=e10] [cursor=pointer]:
+    - img [ref=e11]
+  - alert [ref=e14]

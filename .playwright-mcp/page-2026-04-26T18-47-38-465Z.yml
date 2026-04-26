@@ -1,0 +1,13 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - heading "Swing" [level=1] [ref=e3]
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - paragraph [ref=e9]: Score
+        - paragraph [ref=e10]: "0"
+      - generic [ref=e11]:
+        - paragraph [ref=e12]: Next
+        - generic [ref=e13]: "4"
+      - paragraph [ref=e15]: Click left/right of each seesaw
+    - paragraph [ref=e16]: 3+ same-color balls in a row disappear · heavier side tips the seesaw
+  - alert [ref=e17]
