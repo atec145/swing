@@ -1,4 +1,4 @@
-import type { GameState } from './types'
+import type { GameState, Variant } from './types'
 import {
   NUM_SEESAWS, CW, CH, PIVOT_Y, ARM_LENGTH, BALL_RADIUS, BALL_SPACING,
   COLOR_HEX, COLOR_GLOW, SEESAW_SPACING, MARGIN_X,
@@ -12,6 +12,7 @@ function drawBall(
   color: string,
   glow: string,
   weight: number,
+  variant: Variant,
   alpha = 1,
 ) {
   ctx.save()
@@ -21,28 +22,81 @@ function drawBall(
   ctx.shadowColor = glow
   ctx.shadowBlur = 16
 
-  // Main circle
-  const grad = ctx.createRadialGradient(x - BALL_RADIUS * 0.3, y - BALL_RADIUS * 0.3, 2, x, y, BALL_RADIUS)
-  grad.addColorStop(0, lighten(color, 0.4))
-  grad.addColorStop(1, darken(color, 0.2))
-  ctx.fillStyle = grad
-  ctx.beginPath()
-  ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2)
-  ctx.fill()
+  if (variant === 'full') {
+    // Solid colored circle (existing style)
+    const grad = ctx.createRadialGradient(x - BALL_RADIUS * 0.3, y - BALL_RADIUS * 0.3, 2, x, y, BALL_RADIUS)
+    grad.addColorStop(0, lighten(color, 0.4))
+    grad.addColorStop(1, darken(color, 0.2))
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2)
+    ctx.fill()
 
-  ctx.shadowBlur = 0
+    ctx.shadowBlur = 0
 
-  // Rim
-  ctx.strokeStyle = lighten(color, 0.3)
-  ctx.lineWidth = 1.5
-  ctx.stroke()
+    // Rim
+    ctx.strokeStyle = lighten(color, 0.3)
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+  } else {
+    // Half / striped ball — white base + colored equatorial band (billiard style)
+    const baseGrad = ctx.createRadialGradient(x - BALL_RADIUS * 0.3, y - BALL_RADIUS * 0.3, 2, x, y, BALL_RADIUS)
+    baseGrad.addColorStop(0, '#FFFFFF')
+    baseGrad.addColorStop(1, '#C8CDD6')
+    ctx.fillStyle = baseGrad
+    ctx.beginPath()
+    ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2)
+    ctx.fill()
 
-  // Weight number
-  ctx.fillStyle = 'rgba(255,255,255,0.95)'
+    ctx.shadowBlur = 0
+
+    // Colored equatorial stripe — clipped to circle
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2)
+    ctx.clip()
+
+    const stripeHeight = BALL_RADIUS * 1.05
+    const stripeGrad = ctx.createLinearGradient(x, y - stripeHeight / 2, x, y + stripeHeight / 2)
+    stripeGrad.addColorStop(0, darken(color, 0.05))
+    stripeGrad.addColorStop(0.5, lighten(color, 0.15))
+    stripeGrad.addColorStop(1, darken(color, 0.1))
+    ctx.fillStyle = stripeGrad
+    ctx.fillRect(x - BALL_RADIUS, y - stripeHeight / 2, BALL_RADIUS * 2, stripeHeight)
+    ctx.restore()
+
+    // Rim
+    ctx.strokeStyle = '#888E98'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.arc(x, y, BALL_RADIUS, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+
+  // Weight number — drawn on a small white pill so it stays legible on
+  // both solid and striped backgrounds.
+  const numText = String(weight)
   ctx.font = `bold ${BALL_RADIUS * 0.85}px system-ui`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(String(weight), x, y + 1)
+
+  if (variant === 'half') {
+    // Small white circle behind the number for legibility against the stripe
+    const pillR = BALL_RADIUS * 0.55
+    ctx.fillStyle = 'rgba(255,255,255,0.92)'
+    ctx.beginPath()
+    ctx.arc(x, y, pillR, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#1A1F2C'
+    ctx.fillText(numText, x, y + 1)
+  } else {
+    // Solid ball: white text with a thin dark outline
+    ctx.lineWidth = 3
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'
+    ctx.strokeText(numText, x, y + 1)
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'
+    ctx.fillText(numText, x, y + 1)
+  }
 
   ctx.restore()
 }
@@ -111,6 +165,7 @@ function drawDropGuide(
   nextColor: string,
   nextGlow: string,
   nextWeight: number,
+  nextVariant: Variant,
   stackHeight: number,
 ) {
   const armEnd = side === 'left' ? leftArmEnd(cx, angle) : rightArmEnd(cx, angle)
@@ -128,7 +183,7 @@ function drawDropGuide(
   ctx.restore()
 
   // Ghost ball
-  drawBall(ctx, armEnd.x, ghostY, nextColor, nextGlow, nextWeight, 0.45)
+  drawBall(ctx, armEnd.x, ghostY, nextColor, nextGlow, nextWeight, nextVariant, 0.45)
 }
 
 function drawBackground(ctx: CanvasRenderingContext2D) {
@@ -200,7 +255,10 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     if (highlighted && state.hoverSide && state.phase !== 'gameover') {
       const side = state.hoverSide
       const stack = side === 'left' ? sw.left.length : sw.right.length
-      drawDropGuide(ctx, cx, sw.angle, side, nextColor, nextGlow, state.nextBall.weight, stack)
+      drawDropGuide(
+        ctx, cx, sw.angle, side, nextColor, nextGlow,
+        state.nextBall.weight, state.nextBall.variant, stack,
+      )
     }
 
     drawSeesaw(ctx, cx, sw.angle, highlighted)
@@ -209,14 +267,20 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     const lEnd = leftArmEnd(cx, sw.angle)
     for (let j = 0; j < sw.left.length; j++) {
       const b = sw.left[j]
-      drawBall(ctx, lEnd.x, lEnd.y - BALL_RADIUS - j * BALL_SPACING, COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight)
+      drawBall(
+        ctx, lEnd.x, lEnd.y - BALL_RADIUS - j * BALL_SPACING,
+        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
+      )
     }
 
     // Balls on right arm
     const rEnd = rightArmEnd(cx, sw.angle)
     for (let j = 0; j < sw.right.length; j++) {
       const b = sw.right[j]
-      drawBall(ctx, rEnd.x, rEnd.y - BALL_RADIUS - j * BALL_SPACING, COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight)
+      drawBall(
+        ctx, rEnd.x, rEnd.y - BALL_RADIUS - j * BALL_SPACING,
+        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
+      )
     }
   }
 

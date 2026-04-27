@@ -1,8 +1,22 @@
-export type Color = 'red' | 'blue' | 'green' | 'yellow' | 'purple'
+// Original Swing color palette, ordered by unlock progression.
+// First 5 are starting colors (confirmed from PC DOS screenshots).
+// Last 3 unlock progressively as score grows.
+export type Color =
+  | 'green'
+  | 'blue'
+  | 'red'
+  | 'navy'
+  | 'gray'
+  | 'orange'
+  | 'yellow'
+  | 'cyan'
+
+export type Variant = 'full' | 'half'
 
 export interface Ball {
   id: string
   color: Color
+  variant: Variant
   weight: number
 }
 
