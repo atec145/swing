@@ -132,27 +132,39 @@ function scanRow(row: (Ball | null)[], toRemove: Set<string>) {
 }
 
 // Returns IDs of balls to remove.
-// Checks three match directions:
-//   1. Left-side row at each height: s0.left[h], s1.left[h], ...
-//   2. Right-side row at each height: s0.right[h], s1.right[h], ...
-//   3. Vertical stack on each side of each seesaw
+// Only horizontal rows trigger matches (3+ same type at the same height).
+// Vertically stacked same-type balls are cleared only when they are adjacent
+// to a ball that is already part of a horizontal match.
 function findMatches(seesaws: SeesawState[]): Set<string> {
   const toRemove = new Set<string>()
-  const maxH = Math.max(...seesaws.map(sw => Math.max(sw.left.length, sw.right.length)))
+  const maxH = Math.max(0, ...seesaws.map(sw => Math.max(sw.left.length, sw.right.length)))
 
   for (let h = 0; h < maxH; h++) {
-    // Left-side row across all seesaws
     scanRow(seesaws.map(sw => sw.left[h] ?? null), toRemove)
-    // Right-side row across all seesaws
     scanRow(seesaws.map(sw => sw.right[h] ?? null), toRemove)
-    // Interleaved row (cross-seesaw)
     scanRow(seesaws.flatMap(sw => [sw.left[h] ?? null, sw.right[h] ?? null]), toRemove)
   }
 
-  // Vertical stacks
-  for (const sw of seesaws) {
-    scanRow(sw.left, toRemove)
-    scanRow(sw.right, toRemove)
+  if (toRemove.size === 0) return toRemove
+
+  // Expand vertically: for each horizontally matched ball, also clear contiguous
+  // same-type balls stacked directly above or below it in the same arm.
+  for (let si = 0; si < seesaws.length; si++) {
+    for (const side of ['left', 'right'] as const) {
+      const stack = seesaws[si][side]
+      for (let h = 0; h < stack.length; h++) {
+        if (!toRemove.has(stack[h].id)) continue
+        const key = matchKey(stack[h])
+        for (let k = h + 1; k < stack.length; k++) {
+          if (matchKey(stack[k]) === key) toRemove.add(stack[k].id)
+          else break
+        }
+        for (let k = h - 1; k >= 0; k--) {
+          if (matchKey(stack[k]) === key) toRemove.add(stack[k].id)
+          else break
+        }
+      }
+    }
   }
 
   return toRemove

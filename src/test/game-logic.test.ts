@@ -23,7 +23,7 @@ function stateWith(seesaws: SeesawState[]): GameState {
 }
 
 describe('findMatches (via dropBall score)', () => {
-  it('awards points for 3 same-color balls in vertical left stack', () => {
+  it('vertical stack alone does NOT award points', () => {
     const initial: GameState = stateWith([
       seesaw([ball('red'), ball('red')], []),
       seesaw([], []),
@@ -35,7 +35,7 @@ describe('findMatches (via dropBall score)', () => {
     const withRedNext = { ...initial, nextBall: ball('red', 1) }
 
     const result = dropBall(withRedNext, 0, 'left')
-    expect(result.score).toBeGreaterThan(0)
+    expect(result.score).toBe(0)
   })
 
   it('awards points for 3 same-color balls in left-side horizontal row', () => {
@@ -51,6 +51,27 @@ describe('findMatches (via dropBall score)', () => {
 
     const result = dropBall(withBlueNext, 2, 'left')
     expect(result.score).toBeGreaterThan(0)
+  })
+
+  it('horizontal match also clears vertically adjacent same-color balls', () => {
+    // s0.left and s1.left each have 2 blue balls stacked.
+    // Dropping blue on s2.left completes a horizontal match at h=0.
+    // The second blue (h=1) in s0.left and s1.left should also be cleared.
+    const initial: GameState = stateWith([
+      seesaw([ball('blue'), ball('blue')], []),
+      seesaw([ball('blue'), ball('blue')], []),
+      seesaw([], []),
+      seesaw([], []),
+      seesaw([], []),
+      seesaw([], []),
+    ])
+    const withBlueNext = { ...initial, nextBall: ball('blue', 1) }
+
+    const result = dropBall(withBlueNext, 2, 'left')
+    expect(result.score).toBeGreaterThan(0)
+    expect(result.seesaws[0].left.length).toBe(0)
+    expect(result.seesaws[1].left.length).toBe(0)
+    expect(result.seesaws[2].left.length).toBe(0)
   })
 
   it('no points when balls do not match', () => {
