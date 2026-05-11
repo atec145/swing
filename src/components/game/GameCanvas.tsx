@@ -3,7 +3,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 import type { GameState } from '@/game/types'
 import { render } from '@/game/renderer'
-import { CW, CH, MARGIN_X, SEESAW_SPACING } from '@/game/constants'
+import { CW, CH, ARM_LENGTH } from '@/game/constants'
 import { seesawCenterX } from '@/game/physics'
 
 interface Props {
@@ -15,10 +15,10 @@ interface Props {
 
 function hitTest(x: number): { seesaw: number; side: 'left' | 'right' } | null {
   for (let i = 0; i < 6; i++) {
-    const left = MARGIN_X + i * SEESAW_SPACING
-    const right = left + SEESAW_SPACING
+    const cx = seesawCenterX(i)
+    const left  = i === 0 ? 0 : seesawCenterX(i - 1) + ARM_LENGTH
+    const right = i === 5 ? CW : cx + ARM_LENGTH
     if (x >= left && x < right) {
-      const cx = seesawCenterX(i)
       return { seesaw: i, side: x < cx ? 'left' : 'right' }
     }
   }
