@@ -1,7 +1,8 @@
-import type { GameState, Variant } from './types'
+import type { Ball, GameState, Variant } from './types'
 import {
   NUM_SEESAWS, CW, CH, PIVOT_Y, ARM_LENGTH, BALL_RADIUS, BALL_SPACING,
   COLOR_HEX, COLOR_GLOW, SEESAW_SPACING, MARGIN_X, MAX_ANGLE,
+  CRANE_RAIL_Y, CRANE_BODY_H, CRANE_GRIP_Y,
 } from './constants'
 import { seesawCenterX, leftArmEnd, rightArmEnd } from './physics'
 
@@ -184,35 +185,6 @@ function drawSeesaw(
   ctx.restore()
 }
 
-function drawDropGuide(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  angle: number,
-  side: 'left' | 'right',
-  nextColor: string,
-  nextGlow: string,
-  nextWeight: number,
-  nextVariant: Variant,
-  stackHeight: number,
-) {
-  const armEnd = side === 'left' ? leftArmEnd(cx, angle) : rightArmEnd(cx, angle)
-  const ghostY = armEnd.y - BALL_RADIUS - stackHeight * BALL_SPACING
-
-  // Dashed drop line
-  ctx.save()
-  ctx.setLineDash([4, 6])
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)'
-  ctx.lineWidth = 1.5
-  ctx.beginPath()
-  ctx.moveTo(armEnd.x, 20)
-  ctx.lineTo(armEnd.x, ghostY - BALL_RADIUS - 4)
-  ctx.stroke()
-  ctx.restore()
-
-  // Ghost ball
-  drawBall(ctx, armEnd.x, ghostY, nextColor, nextGlow, nextWeight, nextVariant, 0.45)
-}
-
 function drawBackground(ctx: CanvasRenderingContext2D) {
   const grad = ctx.createLinearGradient(0, 0, 0, CH)
   grad.addColorStop(0, '#0D0F1A')
@@ -226,7 +198,7 @@ function drawBackground(ctx: CanvasRenderingContext2D) {
     ctx.strokeStyle = 'rgba(255,255,255,0.04)'
     ctx.lineWidth = 1
     ctx.beginPath()
-    ctx.moveTo(x, 0)
+    ctx.moveTo(x, CRANE_RAIL_Y + CRANE_BODY_H + 12)
     ctx.lineTo(x, PIVOT_Y - 5)
     ctx.stroke()
   }
@@ -238,6 +210,165 @@ function drawBackground(ctx: CanvasRenderingContext2D) {
   ctx.moveTo(MARGIN_X, PIVOT_Y + 28)
   ctx.lineTo(CW - MARGIN_X, PIVOT_Y + 28)
   ctx.stroke()
+}
+
+// Drawn at very top of canvas — overhead rail/girder the crane slides on.
+function drawCraneRail(ctx: CanvasRenderingContext2D) {
+  ctx.save()
+
+  // Rail body — dark metallic bar
+  const railTop = CRANE_RAIL_Y - 10
+  const railBottom = CRANE_RAIL_Y + 4
+  const grad = ctx.createLinearGradient(0, railTop, 0, railBottom)
+  grad.addColorStop(0, '#2A3148')
+  grad.addColorStop(0.5, '#4A5680')
+  grad.addColorStop(1, '#1A1F2C')
+  ctx.fillStyle = grad
+  ctx.fillRect(0, railTop, CW, railBottom - railTop)
+
+  // Top highlight line
+  ctx.strokeStyle = 'rgba(180,200,255,0.35)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(0, railTop + 1)
+  ctx.lineTo(CW, railTop + 1)
+  ctx.stroke()
+
+  // Bottom edge shadow
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)'
+  ctx.beginPath()
+  ctx.moveTo(0, railBottom)
+  ctx.lineTo(CW, railBottom)
+  ctx.stroke()
+
+  // Subtle yellow caution stripes on the underside
+  ctx.fillStyle = 'rgba(232,214,52,0.15)'
+  for (let x = 0; x < CW; x += 24) {
+    ctx.fillRect(x, railBottom, 12, 2)
+  }
+
+  ctx.restore()
+}
+
+// Crane gantry + gripper. `releaseProgress` 0..1 animates the claws opening.
+function drawCrane(
+  ctx: CanvasRenderingContext2D,
+  craneX: number,
+  ball: Ball | null,
+  releaseProgress: number,
+  showBall: boolean,
+) {
+  const bodyTop = CRANE_RAIL_Y
+  const bodyBottom = CRANE_RAIL_Y + CRANE_BODY_H
+  const bodyWidth = 64
+  const bodyLeft = craneX - bodyWidth / 2
+  const bodyRight = craneX + bodyWidth / 2
+
+  ctx.save()
+
+  // Cable/strut from rail to crane body (so the crane hangs below the rail)
+  ctx.strokeStyle = '#6070A0'
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(craneX - 14, bodyTop - 4)
+  ctx.lineTo(craneX - 14, bodyTop + 6)
+  ctx.moveTo(craneX + 14, bodyTop - 4)
+  ctx.lineTo(craneX + 14, bodyTop + 6)
+  ctx.stroke()
+
+  // Carriage body — angular sci-fi housing
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'
+  ctx.shadowBlur = 10
+  const bodyGrad = ctx.createLinearGradient(bodyLeft, bodyTop, bodyRight, bodyBottom)
+  bodyGrad.addColorStop(0, '#2C3450')
+  bodyGrad.addColorStop(0.5, '#4A5680')
+  bodyGrad.addColorStop(1, '#1F2638')
+  ctx.fillStyle = bodyGrad
+
+  ctx.beginPath()
+  // Tapered hex-ish shape, narrower at bottom (the gripper neck)
+  ctx.moveTo(bodyLeft + 6, bodyTop + 4)
+  ctx.lineTo(bodyRight - 6, bodyTop + 4)
+  ctx.lineTo(bodyRight, bodyTop + 16)
+  ctx.lineTo(bodyRight - 6, bodyBottom - 14)
+  ctx.lineTo(bodyLeft + 6, bodyBottom - 14)
+  ctx.lineTo(bodyLeft, bodyTop + 16)
+  ctx.closePath()
+  ctx.fill()
+
+  ctx.shadowBlur = 0
+
+  // Body edge highlight
+  ctx.strokeStyle = 'rgba(160,180,230,0.5)'
+  ctx.lineWidth = 1
+  ctx.stroke()
+
+  // Cyan LED status strip along upper rim
+  const ledY = bodyTop + 10
+  const ledGrad = ctx.createLinearGradient(bodyLeft + 10, ledY, bodyRight - 10, ledY)
+  ledGrad.addColorStop(0, 'rgba(60,201,214,0.2)')
+  ledGrad.addColorStop(0.5, 'rgba(60,201,214,0.95)')
+  ledGrad.addColorStop(1, 'rgba(60,201,214,0.2)')
+  ctx.fillStyle = ledGrad
+  ctx.shadowColor = 'rgba(60,201,214,0.8)'
+  ctx.shadowBlur = 8
+  ctx.fillRect(bodyLeft + 10, ledY, bodyWidth - 20, 2)
+  ctx.shadowBlur = 0
+
+  // Small status dot — pulsing-ish ring
+  ctx.fillStyle = '#3CC9D6'
+  ctx.shadowColor = 'rgba(60,201,214,0.8)'
+  ctx.shadowBlur = 6
+  ctx.beginPath()
+  ctx.arc(bodyLeft + 8, bodyTop + 8, 2, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.arc(bodyRight - 8, bodyTop + 8, 2, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.shadowBlur = 0
+
+  // Gripper claws — two angled arms below the body that open with release
+  const clawY = bodyBottom - 14
+  const clawTipY = bodyBottom + 6
+  // openAmount: 0 = closed (cradling ball), 1 = fully open
+  const open = releaseProgress
+  const clawInnerX = BALL_RADIUS - 2 + open * 14
+  const clawOuterX = BALL_RADIUS + 8 + open * 18
+
+  ctx.strokeStyle = '#7C8AB0'
+  ctx.lineWidth = 4
+  ctx.lineCap = 'round'
+
+  // Left claw
+  ctx.beginPath()
+  ctx.moveTo(craneX - 4, clawY)
+  ctx.lineTo(craneX - clawInnerX, clawTipY)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(craneX - clawInnerX, clawTipY)
+  ctx.lineTo(craneX - clawOuterX, clawTipY + 8)
+  ctx.stroke()
+
+  // Right claw
+  ctx.beginPath()
+  ctx.moveTo(craneX + 4, clawY)
+  ctx.lineTo(craneX + clawInnerX, clawTipY)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(craneX + clawInnerX, clawTipY)
+  ctx.lineTo(craneX + clawOuterX, clawTipY + 8)
+  ctx.stroke()
+
+  // Held ball
+  if (showBall && ball) {
+    drawBall(
+      ctx, craneX, CRANE_GRIP_Y,
+      COLOR_HEX[ball.color], COLOR_GLOW[ball.color],
+      ball.weight, ball.variant, 1, 0,
+    )
+  }
+
+  ctx.restore()
 }
 
 function drawGameOver(ctx: CanvasRenderingContext2D, score: number) {
@@ -262,31 +393,35 @@ function drawGameOver(ctx: CanvasRenderingContext2D, score: number) {
   ctx.shadowBlur = 0
   ctx.fillStyle = 'rgba(255,255,255,0.5)'
   ctx.font = '18px system-ui'
-  ctx.fillText('Click to restart', CW / 2, CH / 2 + 70)
+  ctx.fillText('Press Enter to restart', CW / 2, CH / 2 + 70)
 
   ctx.restore()
 }
 
-export function render(ctx: CanvasRenderingContext2D, state: GameState) {
-  drawBackground(ctx)
+// Animation overlay produced by GameCanvas — purely visual, never affects logic.
+export interface CraneAnim {
+  craneX: number              // current animated x of the crane
+  releaseProgress: number     // 0..1 grip-open animation
+  showBallInCrane: boolean    // hide ball while it's falling
+  fallingBall: null | {
+    x: number
+    y: number
+    ball: Ball
+  }
+}
 
-  const nextColor = COLOR_HEX[state.nextBall.color]
-  const nextGlow = COLOR_GLOW[state.nextBall.color]
+export function render(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  craneAnim?: CraneAnim,
+) {
+  drawBackground(ctx)
+  drawCraneRail(ctx)
 
   for (let i = 0; i < NUM_SEESAWS; i++) {
     const sw = state.seesaws[i]
     const cx = seesawCenterX(i)
     const highlighted = state.hoverSeesaw === i
-
-    // Drop guide
-    if (highlighted && state.hoverSide && state.phase !== 'gameover') {
-      const side = state.hoverSide
-      const stack = side === 'left' ? sw.left.length : sw.right.length
-      drawDropGuide(
-        ctx, cx, sw.angle, side, nextColor, nextGlow,
-        state.nextBall.weight, state.nextBall.variant, stack,
-      )
-    }
 
     drawSeesaw(ctx, cx, sw.angle, highlighted)
 
@@ -313,9 +448,40 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     }
   }
 
+  // Crane on top of everything (except gameover overlay)
+  if (state.phase !== 'gameover' && craneAnim) {
+    drawCrane(
+      ctx,
+      craneAnim.craneX,
+      state.nextBall,
+      craneAnim.releaseProgress,
+      craneAnim.showBallInCrane,
+    )
+
+    // Falling ball, if any
+    if (craneAnim.fallingBall) {
+      const fb = craneAnim.fallingBall
+      drawBall(
+        ctx, fb.x, fb.y,
+        COLOR_HEX[fb.ball.color], COLOR_GLOW[fb.ball.color],
+        fb.ball.weight, fb.ball.variant, 1, 0,
+      )
+    }
+  }
+
   if (state.phase === 'gameover') {
     drawGameOver(ctx, state.score)
   }
+}
+
+// Map a discrete crane position 0..11 to a canvas x coordinate.
+// Even index = left side of seesaw, odd = right side.
+export function craneXForIndex(index: number, angle = 0): number {
+  const seesaw = Math.floor(index / 2)
+  const cx = seesawCenterX(seesaw)
+  return index % 2 === 0
+    ? leftArmEnd(cx, angle).x
+    : rightArmEnd(cx, angle).x
 }
 
 // Color utility helpers
