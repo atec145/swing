@@ -7,7 +7,7 @@ export function totalWeight(balls: Ball[]): number {
 
 export function computeAngle(left: Ball[], right: Ball[]): number {
   const diff = totalWeight(left) - totalWeight(right)
-  return Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, diff * ANGLE_SCALE))
+  return Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, diff / ANGLE_SCALE))
 }
 
 export function seesawCenterX(i: number): number {

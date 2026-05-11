@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createBall, createInitialState, dropBall, tierForScore } from '../game/logic'
 import { COLORS, DIFFICULTY_TIERS } from '../game/constants'
+import { computeAngle } from '../game/physics'
 import type { Ball, Color, SeesawState, GameState, Variant } from '../game/types'
 
 function ball(color: Color, weight = 1, variant: Variant = 'full'): Ball {
@@ -8,7 +9,7 @@ function ball(color: Color, weight = 1, variant: Variant = 'full'): Ball {
 }
 
 function seesaw(left: Ball[], right: Ball[]): SeesawState {
-  return { left, right, angle: 0 }
+  return { left, right, angle: computeAngle(left, right) }
 }
 
 function stateWith(seesaws: SeesawState[]): GameState {

@@ -131,18 +131,47 @@ function scanRow(row: (Ball | null)[], toRemove: Set<string>) {
   }
 }
 
+// Returns -1 if this arm is down (heavier side), +1 if up (lighter side), 0 if balanced.
+// When angle > 0: left is heavier → left arm is down, right arm is up.
+function armOffset(angle: number, side: 'left' | 'right'): number {
+  if (angle === 0) return 0
+  if (side === 'left') return angle > 0 ? -1 : 1
+  return angle > 0 ? 1 : -1
+}
+
 // Returns IDs of balls to remove.
-// Only horizontal rows trigger matches (3+ same type at the same height).
+// Horizontal rows match balls at the same PHYSICAL LEVEL (not array index).
+// Level = stackIndex + armOffset: a tilted arm shifts all its balls up or down
+// by one slot relative to a balanced arm, matching the original game's 3-level
+// geometry (unten / mitte / oben).
 // Vertically stacked same-type balls are cleared only when they are adjacent
 // to a ball that is already part of a horizontal match.
 function findMatches(seesaws: SeesawState[]): Set<string> {
   const toRemove = new Set<string>()
-  const maxH = Math.max(0, ...seesaws.map(sw => Math.max(sw.left.length, sw.right.length)))
 
-  for (let h = 0; h < maxH; h++) {
-    scanRow(seesaws.map(sw => sw.left[h] ?? null), toRemove)
-    scanRow(seesaws.map(sw => sw.right[h] ?? null), toRemove)
-    scanRow(seesaws.flatMap(sw => [sw.left[h] ?? null, sw.right[h] ?? null]), toRemove)
+  function getBallAtLevel(sw: SeesawState, side: 'left' | 'right', L: number): Ball | null {
+    const k = L - armOffset(sw.angle, side)
+    if (k < 0 || k >= sw[side].length) return null
+    return sw[side][k]
+  }
+
+  let minLevel = 0
+  let maxLevel = 0
+  for (const sw of seesaws) {
+    for (const side of ['left', 'right'] as const) {
+      const offset = armOffset(sw.angle, side)
+      const len = sw[side].length
+      if (len > 0) {
+        minLevel = Math.min(minLevel, offset)
+        maxLevel = Math.max(maxLevel, (len - 1) + offset)
+      }
+    }
+  }
+
+  for (let L = minLevel; L <= maxLevel; L++) {
+    scanRow(seesaws.map(sw => getBallAtLevel(sw, 'left', L)), toRemove)
+    scanRow(seesaws.map(sw => getBallAtLevel(sw, 'right', L)), toRemove)
+    scanRow(seesaws.flatMap(sw => [getBallAtLevel(sw, 'left', L), getBallAtLevel(sw, 'right', L)]), toRemove)
   }
 
   if (toRemove.size === 0) return toRemove

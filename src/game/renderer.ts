@@ -1,7 +1,7 @@
 import type { GameState, Variant } from './types'
 import {
   NUM_SEESAWS, CW, CH, PIVOT_Y, ARM_LENGTH, BALL_RADIUS, BALL_SPACING,
-  COLOR_HEX, COLOR_GLOW, SEESAW_SPACING, MARGIN_X,
+  COLOR_HEX, COLOR_GLOW, SEESAW_SPACING, MARGIN_X, MAX_ANGLE,
 } from './constants'
 import { seesawCenterX, leftArmEnd, rightArmEnd } from './physics'
 
@@ -14,6 +14,7 @@ function drawBall(
   weight: number,
   variant: Variant,
   alpha = 1,
+  dangerLevel = 0,
 ) {
   ctx.save()
   ctx.globalAlpha = alpha
@@ -98,6 +99,17 @@ function drawBall(
     ctx.fillText(numText, x, y + 1)
   }
 
+  if (dangerLevel > 0) {
+    ctx.strokeStyle = dangerLevel === 2 ? '#FF2222' : '#FF8800'
+    ctx.shadowColor = dangerLevel === 2 ? 'rgba(255,34,34,0.7)' : 'rgba(255,136,0,0.7)'
+    ctx.shadowBlur = dangerLevel === 2 ? 12 : 8
+    ctx.lineWidth = dangerLevel === 2 ? 3 : 2.5
+    ctx.beginPath()
+    ctx.arc(x, y, BALL_RADIUS + 2, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.shadowBlur = 0
+  }
+
   ctx.restore()
 }
 
@@ -153,6 +165,21 @@ function drawSeesaw(
   ctx.beginPath()
   ctx.arc(rEnd.x, rEnd.y, 5, 0, Math.PI * 2)
   ctx.fill()
+
+  // Catapult zone indicators — fixed rings at MAX_ANGLE arm-tip positions
+  const lZone = leftArmEnd(cx, MAX_ANGLE)
+  const rZone = rightArmEnd(cx, MAX_ANGLE)
+  ctx.strokeStyle = 'rgba(255,160,40,0.7)'
+  ctx.shadowColor = 'rgba(255,160,40,0.6)'
+  ctx.shadowBlur = 6
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.arc(lZone.x, lZone.y, 5, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(rZone.x, rZone.y, 5, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.shadowBlur = 0
 
   ctx.restore()
 }
@@ -265,21 +292,23 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
 
     // Balls on left arm
     const lEnd = leftArmEnd(cx, sw.angle)
+    const leftDanger = sw.left.length >= 7 ? 2 : sw.left.length >= 6 ? 1 : 0
     for (let j = 0; j < sw.left.length; j++) {
       const b = sw.left[j]
       drawBall(
         ctx, lEnd.x, lEnd.y - BALL_RADIUS - j * BALL_SPACING,
-        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
+        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant, 1, leftDanger,
       )
     }
 
     // Balls on right arm
     const rEnd = rightArmEnd(cx, sw.angle)
+    const rightDanger = sw.right.length >= 7 ? 2 : sw.right.length >= 6 ? 1 : 0
     for (let j = 0; j < sw.right.length; j++) {
       const b = sw.right[j]
       drawBall(
         ctx, rEnd.x, rEnd.y - BALL_RADIUS - j * BALL_SPACING,
-        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
+        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant, 1, rightDanger,
       )
     }
   }
