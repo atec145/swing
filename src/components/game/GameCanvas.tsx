@@ -258,7 +258,6 @@ export default function GameCanvas({ gameState, onDrop, onCraneMove, onRestart }
       switch (e.key) {
         case 'ArrowLeft':
           e.preventDefault()
-          // Allow crane movement even while ball is falling — pre-position for next drop.
           if (!isInputLocked()) onCraneMove(-1)
           break
         case 'ArrowRight':
