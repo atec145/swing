@@ -8,6 +8,8 @@
 
 # testing
 /coverage
+/test-results/
+/tests/
 
 # next.js
 /.next/
@@ -19,6 +21,8 @@
 # misc
 .DS_Store
 *.pem
+*.jpg
+*.jpeg
 
 # debug
 npm-debug.log*
