@@ -20,6 +20,7 @@ function stateWith(seesaws: SeesawState[]): GameState {
     phase: 'waiting',
     hoverSeesaw: null,
     hoverSide: null,
+    cranePositionIndex: 0,
   }
 }
 

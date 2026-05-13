@@ -44,6 +44,16 @@ export const COLOR_GLOW: Record<Color, string> = {
 export const CW = 900
 export const CH = 580
 
+// Crane (top-of-canvas keyboard-controlled launcher)
+export const CRANE_RAIL_Y = 28           // y-position of the overhead rail
+export const CRANE_BODY_H = 56           // height of the crane body below the rail
+export const CRANE_GRIP_Y = CRANE_RAIL_Y + CRANE_BODY_H // y of ball center when held
+export const CRANE_MOVE_DURATION = 150   // ms — smooth glide between positions
+export const CRANE_RELEASE_DURATION = 180 // ms — gripper opens before ball falls
+export const FALL_GRAVITY = 0.65          // px / frame^2 (assuming 60fps)
+export const FALL_INITIAL_VY = 0.4        // px / frame at release
+export const NUM_CRANE_POSITIONS = NUM_SEESAWS * 2 // 12 discrete x positions
+
 // Seesaw geometry
 export const MARGIN_X = 40
 export const SEESAW_SPACING = (CW - MARGIN_X * 2) / NUM_SEESAWS // ~136.67

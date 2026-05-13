@@ -44,6 +44,7 @@ export function createInitialState(): GameState {
     phase: 'waiting',
     hoverSeesaw: null,
     hoverSide: null,
+    cranePositionIndex: 0, // start over seesaw 0, left side
   }
 }
 

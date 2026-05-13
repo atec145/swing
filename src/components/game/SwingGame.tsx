@@ -5,14 +5,14 @@ import GameUI from './GameUI'
 import { useGameState } from '@/hooks/useGameState'
 
 export default function SwingGame() {
-  const { gameState, handleDrop, handleHover, handleRestart } = useGameState()
+  const { gameState, handleDrop, handleCraneMove, handleRestart } = useGameState()
 
   return (
     <div className="w-full max-w-[900px] rounded-2xl overflow-hidden border border-slate-800 shadow-2xl shadow-black/60 bg-[#0D0F1A]">
       <GameCanvas
         gameState={gameState}
         onDrop={handleDrop}
-        onHover={handleHover}
+        onCraneMove={handleCraneMove}
         onRestart={handleRestart}
       />
       <div className="border-t border-slate-800 bg-gray-950/80">

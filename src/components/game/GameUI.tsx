@@ -28,7 +28,13 @@ export default function GameUI({ score, nextBall, phase, onRestart }: Props) {
 
       {/* Controls hint */}
       <div className="text-right">
-        <p className="text-xs text-slate-600">Click left/right of each seesaw</p>
+        <p className="text-xs text-slate-600">
+          <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">&larr;</kbd>{' '}
+          <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">&rarr;</kbd>{' '}
+          move crane &nbsp;
+          <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">&darr;</kbd>{' '}
+          drop ball
+        </p>
         {phase === 'gameover' && (
           <Button
             onClick={onRestart}

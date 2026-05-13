@@ -35,4 +35,7 @@ export interface GameState {
   phase: GamePhase
   hoverSeesaw: number | null
   hoverSide: 'left' | 'right' | null
+  // Crane position: 0..11 (2 positions per seesaw: left & right).
+  // Index = seesawIndex * 2 + (side === 'left' ? 0 : 1).
+  cranePositionIndex: number
 }

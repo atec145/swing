@@ -18,6 +18,7 @@ Their core need: a satisfying, low-friction puzzle loop that rewards clever plac
 |----------|---------|--------|
 | P0 (MVP) | Game board — 6 seesaws on HTML5 Canvas | Deployed |
 | P0 (MVP) | Ball dropping — click left/right side of a seesaw to place a ball | Deployed |
+| P1 | Keyboard-controlled crane launcher — futuristic robot crane with ball-drop animation (#2) | Deployed |
 | P0 (MVP) | Seesaw physics — angle updates based on total weight each side | Deployed |
 | P0 (MVP) | Catapult chain reactions — imbalance > threshold launches top ball to neighbor | Deployed |
 | P0 (MVP) | Match detection — 3+ same-color balls in horizontal rows, interleaved rows, or vertical stacks | Deployed |
