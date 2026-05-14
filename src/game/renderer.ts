@@ -1,7 +1,7 @@
 import type { Ball, GameState, Variant } from './types'
 import {
   NUM_SEESAWS, CW, CH, PIVOT_Y, ARM_LENGTH, BALL_RADIUS, BALL_SPACING,
-  COLOR_HEX, COLOR_GLOW, SEESAW_SPACING, MARGIN_X, MAX_ANGLE,
+  COLOR_HEX, COLOR_GLOW, SEESAW_SPACING, MARGIN_X,
   CRANE_RAIL_Y, CRANE_BODY_H, CRANE_GRIP_Y,
 } from './constants'
 import { seesawCenterX, leftArmEnd, rightArmEnd } from './physics'
@@ -120,67 +120,66 @@ function drawSeesaw(
   angle: number,
   highlighted: boolean,
 ) {
-  const lEnd = leftArmEnd(cx, angle)
-  const rEnd = rightArmEnd(cx, angle)
+  const lEnd = leftArmEnd(cx, angle)  // x always cx-ARM_LENGTH, y slides
+  const rEnd = rightArmEnd(cx, angle) // x always cx+ARM_LENGTH, y slides
+  const gearY = PIVOT_Y               // center of the gear/pivot mechanism
 
   ctx.save()
 
-  // Beam shadow
-  ctx.shadowColor = 'rgba(0,0,0,0.5)'
-  ctx.shadowBlur = 8
-
-  // Beam
-  const beamGrad = ctx.createLinearGradient(lEnd.x, lEnd.y, rEnd.x, rEnd.y)
-  beamGrad.addColorStop(0, highlighted ? '#7090FF' : '#4A5680')
-  beamGrad.addColorStop(0.5, highlighted ? '#90AAFF' : '#6070A0')
-  beamGrad.addColorStop(1, highlighted ? '#7090FF' : '#4A5680')
-  ctx.strokeStyle = beamGrad
-  ctx.lineWidth = 8
+  // Vertical column rails (fixed X guides that the platforms slide along)
+  ctx.strokeStyle = highlighted ? 'rgba(90,110,180,0.35)' : 'rgba(55,65,110,0.3)'
+  ctx.lineWidth = 3
+  ctx.setLineDash([5, 5])
   ctx.lineCap = 'round'
   ctx.beginPath()
-  ctx.moveTo(lEnd.x, lEnd.y)
+  ctx.moveTo(lEnd.x, gearY - ARM_LENGTH)
+  ctx.lineTo(lEnd.x, gearY + 8)
+  ctx.moveTo(rEnd.x, gearY - ARM_LENGTH)
+  ctx.lineTo(rEnd.x, gearY + 8)
+  ctx.stroke()
+  ctx.setLineDash([])
+
+  // Crank arms from central gear to each platform (show the lever mechanism)
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'
+  ctx.shadowBlur = 6
+  ctx.strokeStyle = highlighted ? '#6070B8' : '#3D4870'
+  ctx.lineWidth = 5
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(cx, gearY)
+  ctx.lineTo(lEnd.x, lEnd.y)
+  ctx.moveTo(cx, gearY)
   ctx.lineTo(rEnd.x, rEnd.y)
   ctx.stroke()
-
   ctx.shadowBlur = 0
 
-  // Pivot triangle
-  const pivotH = 18
-  ctx.fillStyle = highlighted ? '#8899DD' : '#5566AA'
+  // Platform shelves at each column top (where balls rest)
+  const shelfW = 14
+  ctx.strokeStyle = highlighted ? '#90AAFF' : '#6070A0'
+  ctx.lineWidth = 6
+  ctx.lineCap = 'round'
   ctx.beginPath()
-  ctx.moveTo(cx, PIVOT_Y)
-  ctx.lineTo(cx - pivotH * 0.6, PIVOT_Y + pivotH)
-  ctx.lineTo(cx + pivotH * 0.6, PIVOT_Y + pivotH)
-  ctx.closePath()
+  ctx.moveTo(lEnd.x - shelfW, lEnd.y)
+  ctx.lineTo(lEnd.x + shelfW, lEnd.y)
+  ctx.moveTo(rEnd.x - shelfW, rEnd.y)
+  ctx.lineTo(rEnd.x + shelfW, rEnd.y)
+  ctx.stroke()
+
+  // Central gear circle
+  ctx.fillStyle = highlighted ? '#7788CC' : '#445588'
+  ctx.shadowColor = 'rgba(0,0,0,0.5)'
+  ctx.shadowBlur = 8
+  ctx.beginPath()
+  ctx.arc(cx, gearY, 8, 0, Math.PI * 2)
   ctx.fill()
+  ctx.strokeStyle = highlighted ? '#99AAEE' : '#5566AA'
+  ctx.lineWidth = 2
+  ctx.stroke()
+  ctx.shadowBlur = 0
 
   // Pivot base
   ctx.fillStyle = highlighted ? '#6677BB' : '#334488'
-  ctx.fillRect(cx - 20, PIVOT_Y + pivotH, 40, 5)
-
-  // Arm end markers
-  ctx.fillStyle = highlighted ? 'rgba(150,180,255,0.7)' : 'rgba(100,120,180,0.5)'
-  ctx.beginPath()
-  ctx.arc(lEnd.x, lEnd.y, 5, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.beginPath()
-  ctx.arc(rEnd.x, rEnd.y, 5, 0, Math.PI * 2)
-  ctx.fill()
-
-  // Catapult zone indicators — fixed rings at MAX_ANGLE arm-tip positions
-  const lZone = leftArmEnd(cx, MAX_ANGLE)
-  const rZone = rightArmEnd(cx, MAX_ANGLE)
-  ctx.strokeStyle = 'rgba(255,160,40,0.7)'
-  ctx.shadowColor = 'rgba(255,160,40,0.6)'
-  ctx.shadowBlur = 6
-  ctx.lineWidth = 2
-  ctx.beginPath()
-  ctx.arc(lZone.x, lZone.y, 5, 0, Math.PI * 2)
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.arc(rZone.x, rZone.y, 5, 0, Math.PI * 2)
-  ctx.stroke()
-  ctx.shadowBlur = 0
+  ctx.fillRect(cx - 18, gearY + 8, 36, 5)
 
   ctx.restore()
 }
@@ -476,12 +475,11 @@ export function render(
 
 // Map a discrete crane position 0..11 to a canvas x coordinate.
 // Even index = left side of seesaw, odd = right side.
-export function craneXForIndex(index: number, angle = 0): number {
+// X is always fixed (columns don't shift horizontally).
+export function craneXForIndex(index: number): number {
   const seesaw = Math.floor(index / 2)
   const cx = seesawCenterX(seesaw)
-  return index % 2 === 0
-    ? leftArmEnd(cx, angle).x
-    : rightArmEnd(cx, angle).x
+  return index % 2 === 0 ? cx - ARM_LENGTH : cx + ARM_LENGTH
 }
 
 // Color utility helpers

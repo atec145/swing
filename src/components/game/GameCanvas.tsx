@@ -12,8 +12,9 @@ import {
   FALL_INITIAL_VY,
   BALL_RADIUS,
   BALL_SPACING,
+  PIVOT_Y,
+  ARM_LENGTH,
 } from '@/game/constants'
-import { leftArmEnd, rightArmEnd, seesawCenterX } from '@/game/physics'
 
 interface Props {
   gameState: GameState
@@ -22,17 +23,15 @@ interface Props {
   onRestart: () => void
 }
 
-// Compute the target Y the falling ball must reach for a given seesaw column
-// and side. We stop the fall as soon as the ball's CENTER reaches the place
-// where the new top ball would sit — that way the world snaps cleanly to the
-// new game state on `dropBall()`.
+// Y of the platform for a given seesaw column (X is fixed; only Y slides).
+// Ball center lands BALL_RADIUS above the platform, stacked by BALL_SPACING.
 function targetFallY(state: GameState, seesawIndex: number, side: 'left' | 'right'): number {
   const sw = state.seesaws[seesawIndex]
-  const cx = seesawCenterX(seesawIndex)
-  const armEnd = side === 'left' ? leftArmEnd(cx, sw.angle) : rightArmEnd(cx, sw.angle)
-  const stackHeight = (side === 'left' ? sw.left.length : sw.right.length)
-  // armEnd.y is the arm tip; first ball center sits BALL_RADIUS above that.
-  return armEnd.y - BALL_RADIUS - stackHeight * BALL_SPACING
+  const platformY = side === 'left'
+    ? PIVOT_Y + ARM_LENGTH * Math.sin(sw.angle)
+    : PIVOT_Y - ARM_LENGTH * Math.sin(sw.angle)
+  const stackHeight = side === 'left' ? sw.left.length : sw.right.length
+  return platformY - BALL_RADIUS - stackHeight * BALL_SPACING
 }
 
 export default function GameCanvas({ gameState, onDrop, onCraneMove, onRestart }: Props) {
@@ -87,12 +86,8 @@ export default function GameCanvas({ gameState, onDrop, onCraneMove, onRestart }
     return a.isReleasing || a.fallingBall !== null
   }, [])
 
-  // Compute the correct pixel X for the current crane position given actual seesaw angle.
-  const targetCraneX = useCallback((posIndex: number) => {
-    const seesawIdx = Math.floor(posIndex / 2)
-    const angle = stateRef.current.seesaws[seesawIdx].angle
-    return craneXForIndex(posIndex, angle)
-  }, [])
+  // Column X is fixed (angle-independent), so this is a direct lookup.
+  const targetCraneX = useCallback((posIndex: number) => craneXForIndex(posIndex), [])
 
   // React to crane position changes coming from props (CRANE_MOVE / RESTART).
   useEffect(() => {
@@ -166,16 +161,12 @@ export default function GameCanvas({ gameState, onDrop, onCraneMove, onRestart }
         if (t >= 1) {
           a.isReleasing = false
           // Spawn the falling ball at the actual arm-end X (angle-aware),
-          // so the ball doesn't jump horizontally when it lands.
           if (a.pendingDrop) {
             const pos = a.pendingDrop
             a.pendingDropAfterFall = pos
             a.pendingDrop = null
-            const sw = stateRef.current.seesaws[pos.seesawIndex]
-            const cx = seesawCenterX(pos.seesawIndex)
-            const armEndX = pos.side === 'left'
-              ? leftArmEnd(cx, sw.angle).x
-              : rightArmEnd(cx, sw.angle).x
+            const posIndex = pos.seesawIndex * 2 + (pos.side === 'left' ? 0 : 1)
+            const armEndX = craneXForIndex(posIndex)
             a.fallingBall = {
               x: armEndX,
               y: CRANE_GRIP_Y,

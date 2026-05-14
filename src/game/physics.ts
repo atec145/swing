@@ -19,16 +19,18 @@ export interface Point {
   y: number
 }
 
+// Sliding-column model: X is always fixed at cx ± ARM_LENGTH.
+// Only Y moves — the heavy side descends, the light side rises.
 export function leftArmEnd(cx: number, angle: number): Point {
   return {
-    x: cx - ARM_LENGTH * Math.cos(angle),
+    x: cx - ARM_LENGTH,
     y: PIVOT_Y + ARM_LENGTH * Math.sin(angle),
   }
 }
 
 export function rightArmEnd(cx: number, angle: number): Point {
   return {
-    x: cx + ARM_LENGTH * Math.cos(angle),
+    x: cx + ARM_LENGTH,
     y: PIVOT_Y - ARM_LENGTH * Math.sin(angle),
   }
 }

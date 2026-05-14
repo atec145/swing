@@ -58,10 +58,10 @@ export const NUM_CRANE_POSITIONS = NUM_SEESAWS * 2 // 12 discrete x positions
 export const MARGIN_X = 40
 export const SEESAW_SPACING = (CW - MARGIN_X * 2) / NUM_SEESAWS // ~136.67
 export const PIVOT_Y = 490
-export const ARM_LENGTH = 58
+export const ARM_LENGTH = 45  // horizontal offset of each column from seesaw center; reduced from 58 so adjacent-seesaw balls never overlap
 export const BALL_RADIUS = 18
 export const BALL_SPACING = 40 // center-to-center vertical
-export const MAX_ANGLE = Math.asin(BALL_SPACING / ARM_LENGTH) // ~43.6° — arm drop equals exactly one ball level
+export const MAX_ANGLE = Math.asin(BALL_SPACING / ARM_LENGTH) // ~62° — column travel at full imbalance equals exactly one ball level
 export const ANGLE_SCALE = 4.5 // = CATAPULT_THRESHOLD * 1.5; diff / ANGLE_SCALE gives tilt ratio clamped to MAX_ANGLE
 
 // Minimum weight difference needed to trigger a catapult
