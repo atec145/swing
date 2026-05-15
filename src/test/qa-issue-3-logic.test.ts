@@ -91,14 +91,14 @@ describe('QA #3 — catapult event correctness', () => {
   })
 
   it('Edge: ball lands exactly on wrap point (slot 10) — single event', () => {
-    // s2.right red(7)=7, drop green(1) on s2.left=1. diff=6, right heavier.
-    // Right heavier → flies RIGHT: fromSlot=4, intended = 4+6 = 10 → seesaw 5 left.
+    // s2.left green(1), drop red(7) on s2.right → rw=7, lw=1, diff=6, right heavier.
+    // addedSide='right' → fires LEFT ball: fromSlot=4, intended = 4+6 = 10 → seesaw 5 left.
     const st = stateWith([
       seesaw([], []), seesaw([], []),
-      seesaw([], [ball('red', 7)]),
+      seesaw([ball('green', 1)], []),
       seesaw([], []), seesaw([], []), seesaw([], []),
-    ], ball('green', 1))
-    const { catapultEvents } = dropBall(st, 2, 'left')
+    ], ball('red', 7))
+    const { catapultEvents } = dropBall(st, 2, 'right')
     expect(catapultEvents).toHaveLength(1)
     expect(catapultEvents[0]).toMatchObject({ fromSlot: 4, toSlot: 10, diff: 6 })
   })

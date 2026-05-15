@@ -83,14 +83,18 @@ function resolveLandingSlot(
 }
 
 // Processes catapult chain reactions starting from the seesaw where a ball was
-// placed. Each seesaw catapults at most ONE ball per chain to keep both sides
-// populated (enabling horizontal matches). The weight difference determines how
-// many position slots the ball travels (modulo-12 wrap-around). Works on
-// mutable deep copies and records an ordered CatapultEvent for every throw so
-// the animation layer can replay the chain step-by-step.
+// placed. The catapult only fires in the direction caused by the ball that was
+// just added: adding to the left can only tip the left side heavy enough to
+// launch the right ball, and vice versa. This prevents a ball dropped onto the
+// lighter (rising) arm from instantly triggering a catapult — the seesaw must
+// actually change its tipping direction.
+//
+// Each seesaw fires at most once per chain. The BFS queue carries addedSide so
+// every chain step knows which side received the incoming ball.
 function processCatapults(
   seesaws: SeesawState[],
   startIndex: number,
+  startSide: 'left' | 'right',
 ): { seesaws: SeesawState[]; events: CatapultEvent[] } {
   const s: SeesawState[] = seesaws.map(sw => ({
     ...sw,
@@ -99,20 +103,21 @@ function processCatapults(
   }))
 
   const events: CatapultEvent[] = []
-  const queue: number[] = [startIndex]
-  const visited = new Set<number>() // each seesaw fires at most once per chain
+  const queue: { index: number; addedSide: 'left' | 'right' }[] = [
+    { index: startIndex, addedSide: startSide },
+  ]
+  const visited = new Set<number>()
 
   while (queue.length > 0) {
-    const i = queue.shift()!
+    const { index: i, addedSide } = queue.shift()!
     if (visited.has(i)) continue
     visited.add(i)
 
     const lw = totalWeight(s[i].left)
     const rw = totalWeight(s[i].right)
 
-    if (lw > rw + CATAPULT_THRESHOLD && s[i].right.length > 0) {
-      // Left heavier → seesaw tips left → right arm rises → top right ball
-      // flies LEFT toward the heavy side (trebuchet: throwing arm arcs leftward).
+    if (addedSide === 'left' && lw > rw + CATAPULT_THRESHOLD && s[i].right.length > 0) {
+      // Ball added to left → left tips down → right arm rises → right ball flies LEFT.
       const diff = lw - rw
       const ball = s[i].right.pop()!
       s[i].angle = computeAngle(s[i].left, s[i].right)
@@ -123,18 +128,17 @@ function processCatapults(
 
       if (toSlot !== null) {
         const sw = s[slotToSeesaw(toSlot)]
-        const stack = slotSide(toSlot) === 'left' ? sw.left : sw.right
-        stack.push(ball)
+        const side = slotSide(toSlot)
+        ;(side === 'left' ? sw.left : sw.right).push(ball)
         sw.angle = computeAngle(sw.left, sw.right)
         events.push({ fromSlot, toSlot, ball, diff })
-        queue.push(slotToSeesaw(toSlot))
+        queue.push({ index: slotToSeesaw(toSlot), addedSide: side })
       } else {
         // Every slot full — ball is lost; still animate the launch.
         events.push({ fromSlot, toSlot: fromSlot - diff, ball, diff })
       }
-    } else if (rw > lw + CATAPULT_THRESHOLD && s[i].left.length > 0) {
-      // Right heavier → seesaw tips right → left arm rises → top left ball
-      // flies RIGHT toward the heavy side (trebuchet: throwing arm arcs rightward).
+    } else if (addedSide === 'right' && rw > lw + CATAPULT_THRESHOLD && s[i].left.length > 0) {
+      // Ball added to right → right tips down → left arm rises → left ball flies RIGHT.
       const diff = rw - lw
       const ball = s[i].left.pop()!
       s[i].angle = computeAngle(s[i].left, s[i].right)
@@ -145,11 +149,11 @@ function processCatapults(
 
       if (toSlot !== null) {
         const sw = s[slotToSeesaw(toSlot)]
-        const stack = slotSide(toSlot) === 'left' ? sw.left : sw.right
-        stack.push(ball)
+        const side = slotSide(toSlot)
+        ;(side === 'left' ? sw.left : sw.right).push(ball)
         sw.angle = computeAngle(sw.left, sw.right)
         events.push({ fromSlot, toSlot, ball, diff })
-        queue.push(slotToSeesaw(toSlot))
+        queue.push({ index: slotToSeesaw(toSlot), addedSide: side })
       } else {
         events.push({ fromSlot, toSlot: fromSlot + diff, ball, diff })
       }
@@ -315,7 +319,7 @@ export function dropBall(
   const preCatapultSeesaws = applyManualDrop(state.seesaws, seesawIndex, side, ball)
   let seesaws = preCatapultSeesaws
 
-  const catapultResult = processCatapults(seesaws, seesawIndex)
+  const catapultResult = processCatapults(seesaws, seesawIndex, side)
   seesaws = catapultResult.seesaws
 
   // Cascade matches

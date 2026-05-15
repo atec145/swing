@@ -124,23 +124,23 @@ describe('catapult (slot-based throw distance)', () => {
   })
 
   it('catapults ball diff slots to the RIGHT when right side is heavier', () => {
-    // s2.right red(5) = 5; drop green(1) on s2.left = 1. diff = 4, right heavier
-    // → seesaw tips right → fromSlot = 4 (s2 left), ball flies RIGHT:
+    // s2.left = blue(1). Drop red(5) on s2.right → rw=5, lw=1, diff=4, right heavier.
+    // addedSide='right' → seesaw tips right → fromSlot = 4 (s2 left), ball flies RIGHT:
     // intended = 4+4 = 8 → slot 8 (seesaw 4 left).
     const initial: GameState = stateWith([
       seesaw([], []),
       seesaw([], []),
-      seesaw([], [ball('red', 5)]),
+      seesaw([ball('blue', 1)], []),
       seesaw([], []),
       seesaw([], []),
       seesaw([], []),
     ])
-    const withNextBall = { ...initial, nextBall: ball('green', 1) }
-    const { state, catapultEvents } = dropBallRaw(withNextBall, 2, 'left')
+    const withNextBall = { ...initial, nextBall: ball('red', 5) }
+    const { state, catapultEvents } = dropBallRaw(withNextBall, 2, 'right')
 
     expect(state.seesaws[2].left.length).toBe(0)
     expect(state.seesaws[4].left.length).toBe(1)
-    expect(state.seesaws[4].left[0].color).toBe('green')
+    expect(state.seesaws[4].left[0].color).toBe('blue')
     expect(catapultEvents).toHaveLength(1)
     expect(catapultEvents[0]).toMatchObject({ fromSlot: 4, toSlot: 8, diff: 4 })
   })
