@@ -93,7 +93,9 @@ function buildSegments(
   // Launch anchor: where the ball was sitting (one above the new top of stack).
   const launch = slotAnchor(visual, evt.fromSlot, srcStack.length)
 
-  const dir: 1 | -1 = evt.diff > 0 && slotSide(evt.fromSlot) === 'right' ? 1 : -1
+  // Ball from LEFT slot → flies RIGHT (right is heavier, seesaw tips right).
+  // Ball from RIGHT slot → flies LEFT (left is heavier, seesaw tips left).
+  const dir: 1 | -1 = slotSide(evt.fromSlot) === 'left' ? 1 : -1
   const distance = Math.abs(evt.diff)
 
   // Total flight time, split evenly across the travelled distance.

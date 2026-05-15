@@ -20,9 +20,9 @@ function stateWith(seesaws: SeesawState[], nextBall: Ball): GameState {
 }
 
 describe('QA #3 — catapult event correctness', () => {
-  it('AC: throw distance == weight diff in slots, modulo-12 wrap', () => {
-    // s5.left red(8)+green(2)=10, s5.right blue(1). diff=9. fromSlot=11.
-    // intended = 11+9 = 20, 20 % 12 = 8 → seesaw 4 left.
+  it('AC: throw distance == weight diff in slots, lands at correct slot', () => {
+    // s5.left red(8)+green(2)=10, s5.right blue(1). diff=9. fromSlot=11 (s5 right).
+    // Left heavier → flies LEFT: intended = 11-9 = 2 → seesaw 1 left.
     const st = stateWith([
       seesaw([], []), seesaw([], []), seesaw([], []),
       seesaw([], []), seesaw([], []),
@@ -30,7 +30,7 @@ describe('QA #3 — catapult event correctness', () => {
     ], ball('green', 2))
     const { catapultEvents } = dropBall(st, 5, 'left')
     expect(catapultEvents).toHaveLength(1)
-    expect(catapultEvents[0]).toMatchObject({ fromSlot: 11, toSlot: 8, diff: 9 })
+    expect(catapultEvents[0]).toMatchObject({ fromSlot: 11, toSlot: 2, diff: 9 })
   })
 
   it('AC: pendingCatapult side-channel carries events + pre-snapshot', () => {
@@ -50,21 +50,22 @@ describe('QA #3 — catapult event correctness', () => {
   })
 
   it('Edge: destination slot full → rolls to next free slot in travel dir', () => {
-    // Fill seesaw 3 left to MAX so the intended landing slot is occupied.
+    // Left heavier (diff=5): fromSlot=1, flies LEFT, intended = 1-5=-4 → slot 8 (s4 left).
+    // Fill seesaw 4 left to MAX so the intended landing is occupied → rolls left to slot 7.
     const full = Array.from({ length: MAX_STACK }, () => ball('navy', 1))
     const st = stateWith([
       seesaw([ball('red', 5)], [ball('blue', 1)]),
-      seesaw([], []), seesaw([], []),
-      seesaw(full, []),                 // seesaw 3 left FULL (slot 6)
-      seesaw([], []), seesaw([], []),
+      seesaw([], []), seesaw([], []), seesaw([], []),
+      seesaw(full, []),                 // seesaw 4 left FULL (slot 8)
+      seesaw([], []),
     ], ball('green', 1))
-    // diff=5, fromSlot=1, intended slot 6 (s3 left) is full → next free = slot 7 (s3 right)
+    // intended slot 8 is full → next free in LEFT direction = slot 7 (s3 right)
     const { state, catapultEvents } = dropBall(st, 0, 'left')
     expect(catapultEvents.length).toBeGreaterThanOrEqual(1)
     expect(catapultEvents[0].fromSlot).toBe(1)
-    expect(catapultEvents[0].toSlot).not.toBe(6)
-    // First throw must NOT land on the full slot-6 column (s3 left stays full).
-    expect(state.seesaws[3].left.length).toBe(MAX_STACK)
+    expect(catapultEvents[0].toSlot).not.toBe(8)
+    // First throw must NOT land on the full slot-8 column (s4 left stays full).
+    expect(state.seesaws[4].left.length).toBe(MAX_STACK)
   })
 
   it('Edge: every slot full → ball is lost (no on-board landing)', () => {
@@ -89,9 +90,9 @@ describe('QA #3 — catapult event correctness', () => {
     expect(before).toBeGreaterThan(0)
   })
 
-  it('Edge: ball lands exactly on wrap point (slot 0 / 11) — single event', () => {
-    // s2.right red(7) =7, drop green(1) on s2.left =1. diff=6, right heavier
-    // fromSlot=4, intended = 4-6 = -2 → ((-2)%12+12)%12 = 10 → seesaw 5 left.
+  it('Edge: ball lands exactly on wrap point (slot 10) — single event', () => {
+    // s2.right red(7)=7, drop green(1) on s2.left=1. diff=6, right heavier.
+    // Right heavier → flies RIGHT: fromSlot=4, intended = 4+6 = 10 → seesaw 5 left.
     const st = stateWith([
       seesaw([], []), seesaw([], []),
       seesaw([], [ball('red', 7)]),
@@ -122,18 +123,18 @@ describe('QA #3 — catapult event correctness', () => {
   })
 
   it('diff > 12: large imbalance still produces a valid modulo-12 landing', () => {
-    // Construct diff = 15 (> NUM_SLOTS=12). fromSlot=1, intended=16, %12=4.
+    // Left heavier: s0.left=[red(10),red(6),green(1)]=17, s0.right=[blue(1)]=1. diff=16.
+    // fromSlot=1, flies LEFT: intended = 1-16 = -15 → ((-15)%12+12)%12 = 9.
     const heavyLeft = [ball('red', 10), ball('red', 6)] // 16
     const st = stateWith([
       seesaw(heavyLeft, [ball('blue', 1)]),
       seesaw([], []), seesaw([], []),
       seesaw([], []), seesaw([], []), seesaw([], []),
-    ], ball('green', 0 as unknown as number)) // weight via override below
-    // Use a real weight-1 next ball; diff = (16+1) - 1 = 16, intended=1+16=17, %12=5.
+    ], ball('green', 0 as unknown as number))
     const st2 = { ...st, nextBall: ball('green', 1) }
     const { catapultEvents } = dropBall(st2, 0, 'left')
     expect(catapultEvents).toHaveLength(1)
     expect(catapultEvents[0].diff).toBe(16)
-    expect(catapultEvents[0].toSlot).toBe((1 + 16) % 12) // = 5
+    expect(catapultEvents[0].toSlot).toBe(((1 - 16) % 12 + 12) % 12) // = 9
   })
 })

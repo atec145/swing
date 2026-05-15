@@ -111,37 +111,13 @@ function processCatapults(
     const rw = totalWeight(s[i].right)
 
     if (lw > rw + CATAPULT_THRESHOLD && s[i].right.length > 0) {
-      // Left heavier → right arm rises → top right ball flies RIGHT.
-      // Departure slot is this seesaw's right position (2i+1); the ball
-      // travels `diff` slots clockwise.
+      // Left heavier → seesaw tips left → right arm rises → top right ball
+      // flies LEFT toward the heavy side (trebuchet: throwing arm arcs leftward).
       const diff = lw - rw
       const ball = s[i].right.pop()!
       s[i].angle = computeAngle(s[i].left, s[i].right)
 
       const fromSlot = 2 * i + 1
-      const intended = fromSlot + diff
-      const toSlot = resolveLandingSlot(s, intended, 1)
-
-      if (toSlot !== null) {
-        const sw = s[slotToSeesaw(toSlot)]
-        const stack = slotSide(toSlot) === 'left' ? sw.left : sw.right
-        stack.push(ball)
-        sw.angle = computeAngle(sw.left, sw.right)
-        events.push({ fromSlot, toSlot, ball, diff })
-        queue.push(slotToSeesaw(toSlot))
-      } else {
-        // Every slot full — ball is lost; still animate the launch.
-        events.push({ fromSlot, toSlot: fromSlot + diff, ball, diff })
-      }
-    } else if (rw > lw + CATAPULT_THRESHOLD && s[i].left.length > 0) {
-      // Right heavier → left arm rises → top left ball flies LEFT.
-      // Departure slot is this seesaw's left position (2i); the ball
-      // travels `diff` slots counter-clockwise.
-      const diff = rw - lw
-      const ball = s[i].left.pop()!
-      s[i].angle = computeAngle(s[i].left, s[i].right)
-
-      const fromSlot = 2 * i
       const intended = fromSlot - diff
       const toSlot = resolveLandingSlot(s, intended, -1)
 
@@ -153,7 +129,29 @@ function processCatapults(
         events.push({ fromSlot, toSlot, ball, diff })
         queue.push(slotToSeesaw(toSlot))
       } else {
+        // Every slot full — ball is lost; still animate the launch.
         events.push({ fromSlot, toSlot: fromSlot - diff, ball, diff })
+      }
+    } else if (rw > lw + CATAPULT_THRESHOLD && s[i].left.length > 0) {
+      // Right heavier → seesaw tips right → left arm rises → top left ball
+      // flies RIGHT toward the heavy side (trebuchet: throwing arm arcs rightward).
+      const diff = rw - lw
+      const ball = s[i].left.pop()!
+      s[i].angle = computeAngle(s[i].left, s[i].right)
+
+      const fromSlot = 2 * i
+      const intended = fromSlot + diff
+      const toSlot = resolveLandingSlot(s, intended, 1)
+
+      if (toSlot !== null) {
+        const sw = s[slotToSeesaw(toSlot)]
+        const stack = slotSide(toSlot) === 'left' ? sw.left : sw.right
+        stack.push(ball)
+        sw.angle = computeAngle(sw.left, sw.right)
+        events.push({ fromSlot, toSlot, ball, diff })
+        queue.push(slotToSeesaw(toSlot))
+      } else {
+        events.push({ fromSlot, toSlot: fromSlot + diff, ball, diff })
       }
     }
   }
