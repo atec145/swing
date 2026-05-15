@@ -1,10 +1,28 @@
-import type { Ball, GameState, Variant } from './types'
+import type { Ball, GameState, SeesawState, Variant } from './types'
 import {
   NUM_SEESAWS, CW, CH, PIVOT_Y, ARM_LENGTH, BALL_RADIUS, BALL_SPACING,
   COLOR_HEX, COLOR_GLOW, SEESAW_SPACING, MARGIN_X,
   CRANE_RAIL_Y, CRANE_BODY_H, CRANE_GRIP_Y,
 } from './constants'
 import { seesawCenterX, leftArmEnd, rightArmEnd } from './physics'
+
+// Screen position of the TOP-OF-STACK resting slot for a given position index
+// (0..11). `stackLen` is the number of balls already in that column — the
+// returned point is where the next ball would come to rest. Used as catapult
+// launch / landing anchors so flight paths align with where balls actually sit.
+export function slotAnchor(
+  seesaws: SeesawState[],
+  slot: number,
+  stackLen?: number,
+): { x: number; y: number } {
+  const seesaw = Math.floor(slot / 2)
+  const side: 'left' | 'right' = slot % 2 === 0 ? 'left' : 'right'
+  const cx = seesawCenterX(seesaw)
+  const sw = seesaws[seesaw]
+  const end = side === 'left' ? leftArmEnd(cx, sw.angle) : rightArmEnd(cx, sw.angle)
+  const len = stackLen ?? (side === 'left' ? sw.left.length : sw.right.length)
+  return { x: end.x, y: end.y - BALL_RADIUS - len * BALL_SPACING }
+}
 
 function drawBall(
   ctx: CanvasRenderingContext2D,
@@ -397,6 +415,27 @@ function drawGameOver(ctx: CanvasRenderingContext2D, score: number) {
   ctx.restore()
 }
 
+// Draws a catapulted ball at (x,y), rotated by `rotation` radians and faded
+// by `alpha` (used for the fade-out/fade-in at wrap-around edges).
+function drawCatapultBall(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  ball: Ball,
+  rotation: number,
+  alpha: number,
+) {
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(rotation)
+  drawBall(
+    ctx, 0, 0,
+    COLOR_HEX[ball.color], COLOR_GLOW[ball.color],
+    ball.weight, ball.variant, alpha, 0,
+  )
+  ctx.restore()
+}
+
 // Animation overlay produced by GameCanvas — purely visual, never affects logic.
 export interface CraneAnim {
   craneX: number              // current animated x of the crane
@@ -406,6 +445,14 @@ export interface CraneAnim {
     x: number
     y: number
     ball: Ball
+  }
+  // A ball mid-catapult-flight (one parabola segment). null when idle.
+  catapultBall: null | {
+    x: number
+    y: number
+    ball: Ball
+    rotation: number
+    alpha: number
   }
 }
 
@@ -445,6 +492,12 @@ export function render(
         COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant, 1, rightDanger,
       )
     }
+  }
+
+  // Catapulted ball mid-flight — above seesaws, below the crane.
+  if (craneAnim?.catapultBall) {
+    const cb = craneAnim.catapultBall
+    drawCatapultBall(ctx, cb.x, cb.y, cb.ball, cb.rotation, cb.alpha)
   }
 
   // Crane on top of everything (except gameover overlay)

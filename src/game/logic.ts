@@ -1,4 +1,4 @@
-import type { Ball, GameState, SeesawState, Variant } from './types'
+import type { Ball, CatapultEvent, GameState, SeesawState, Variant } from './types'
 import {
   NUM_SEESAWS,
   MAX_STACK,
@@ -45,6 +45,7 @@ export function createInitialState(): GameState {
     hoverSeesaw: null,
     hoverSide: null,
     cranePositionIndex: 0, // start over seesaw 0, left side
+    pendingCatapult: null,
   }
 }
 
@@ -53,16 +54,51 @@ function matchKey(b: Ball): string {
   return `${b.color}:${b.variant}`
 }
 
-// Processes catapult chain reactions starting from the seesaw where a ball was placed.
-// Each seesaw catapults at most ONE ball per chain to keep both sides populated
-// (enabling horizontal matches). Works on mutable deep copies for performance.
-function processCatapults(seesaws: SeesawState[], startIndex: number): SeesawState[] {
+// Total number of position slots: 2 per seesaw (left = even, right = odd).
+const NUM_SLOTS = NUM_SEESAWS * 2
+
+function slotToSeesaw(slot: number): number {
+  return Math.floor(slot / 2)
+}
+function slotSide(slot: number): 'left' | 'right' {
+  return slot % 2 === 0 ? 'left' : 'right'
+}
+
+// Given an intended landing slot and a travel direction (+1 = clockwise/right,
+// -1 = counter-clockwise/left), return the first slot with free capacity,
+// wrapping modulo NUM_SLOTS. Returns null if every slot is full (no landing).
+function resolveLandingSlot(
+  s: SeesawState[],
+  intended: number,
+  dir: 1 | -1,
+): number | null {
+  let slot = ((intended % NUM_SLOTS) + NUM_SLOTS) % NUM_SLOTS
+  for (let step = 0; step < NUM_SLOTS; step++) {
+    const sw = s[slotToSeesaw(slot)]
+    const stack = slotSide(slot) === 'left' ? sw.left : sw.right
+    if (stack.length < MAX_STACK) return slot
+    slot = ((slot + dir) % NUM_SLOTS + NUM_SLOTS) % NUM_SLOTS
+  }
+  return null
+}
+
+// Processes catapult chain reactions starting from the seesaw where a ball was
+// placed. Each seesaw catapults at most ONE ball per chain to keep both sides
+// populated (enabling horizontal matches). The weight difference determines how
+// many position slots the ball travels (modulo-12 wrap-around). Works on
+// mutable deep copies and records an ordered CatapultEvent for every throw so
+// the animation layer can replay the chain step-by-step.
+function processCatapults(
+  seesaws: SeesawState[],
+  startIndex: number,
+): { seesaws: SeesawState[]; events: CatapultEvent[] } {
   const s: SeesawState[] = seesaws.map(sw => ({
     ...sw,
     left: [...sw.left],
     right: [...sw.right],
   }))
 
+  const events: CatapultEvent[] = []
   const queue: number[] = [startIndex]
   const visited = new Set<number>() // each seesaw fires at most once per chain
 
@@ -75,33 +111,54 @@ function processCatapults(seesaws: SeesawState[], startIndex: number): SeesawSta
     const rw = totalWeight(s[i].right)
 
     if (lw > rw + CATAPULT_THRESHOLD && s[i].right.length > 0) {
-      // Left heavier by threshold → right arm rises → top right ball catapults RIGHT
+      // Left heavier → right arm rises → top right ball flies RIGHT.
+      // Departure slot is this seesaw's right position (2i+1); the ball
+      // travels `diff` slots clockwise.
+      const diff = lw - rw
       const ball = s[i].right.pop()!
       s[i].angle = computeAngle(s[i].left, s[i].right)
 
-      const t = i + 1
-      if (t < NUM_SEESAWS && s[t].left.length < MAX_STACK) {
-        s[t].left.push(ball)
-        s[t].angle = computeAngle(s[t].left, s[t].right)
-        queue.push(t) // check destination, but NOT i again
+      const fromSlot = 2 * i + 1
+      const intended = fromSlot + diff
+      const toSlot = resolveLandingSlot(s, intended, 1)
+
+      if (toSlot !== null) {
+        const sw = s[slotToSeesaw(toSlot)]
+        const stack = slotSide(toSlot) === 'left' ? sw.left : sw.right
+        stack.push(ball)
+        sw.angle = computeAngle(sw.left, sw.right)
+        events.push({ fromSlot, toSlot, ball, diff })
+        queue.push(slotToSeesaw(toSlot))
+      } else {
+        // Every slot full — ball is lost; still animate the launch.
+        events.push({ fromSlot, toSlot: fromSlot + diff, ball, diff })
       }
-      // else ball falls off the right edge — removed
     } else if (rw > lw + CATAPULT_THRESHOLD && s[i].left.length > 0) {
-      // Right heavier by threshold → left arm rises → top left ball catapults LEFT
+      // Right heavier → left arm rises → top left ball flies LEFT.
+      // Departure slot is this seesaw's left position (2i); the ball
+      // travels `diff` slots counter-clockwise.
+      const diff = rw - lw
       const ball = s[i].left.pop()!
       s[i].angle = computeAngle(s[i].left, s[i].right)
 
-      const t = i - 1
-      if (t >= 0 && s[t].right.length < MAX_STACK) {
-        s[t].right.push(ball)
-        s[t].angle = computeAngle(s[t].left, s[t].right)
-        queue.push(t)
+      const fromSlot = 2 * i
+      const intended = fromSlot - diff
+      const toSlot = resolveLandingSlot(s, intended, -1)
+
+      if (toSlot !== null) {
+        const sw = s[slotToSeesaw(toSlot)]
+        const stack = slotSide(toSlot) === 'left' ? sw.left : sw.right
+        stack.push(ball)
+        sw.angle = computeAngle(sw.left, sw.right)
+        events.push({ fromSlot, toSlot, ball, diff })
+        queue.push(slotToSeesaw(toSlot))
+      } else {
+        events.push({ fromSlot, toSlot: fromSlot - diff, ball, diff })
       }
-      // else ball falls off the left edge — removed
     }
   }
 
-  return s
+  return { seesaws: s, events }
 }
 
 function scanRow(row: (Ball | null)[], toRemove: Set<string>) {
@@ -212,15 +269,16 @@ function isGameOver(seesaws: SeesawState[]): boolean {
   return seesaws.some(sw => sw.left.length >= MAX_STACK || sw.right.length >= MAX_STACK)
 }
 
-export function dropBall(state: GameState, seesawIndex: number, side: 'left' | 'right'): GameState {
-  if (state.phase === 'gameover') return state
-
-  const sw = state.seesaws[seesawIndex]
-  const targetStack = side === 'left' ? sw.left : sw.right
-  if (targetStack.length >= MAX_STACK) return state
-
-  const ball = state.nextBall
-  let seesaws = state.seesaws.map((s, i) => {
+// Returns a deep-copied seesaw array with the ball appended to the chosen
+// side — the visual state *before* any catapult resolves. The animation layer
+// starts replaying CatapultEvents from this snapshot.
+export function applyManualDrop(
+  seesaws: SeesawState[],
+  seesawIndex: number,
+  side: 'left' | 'right',
+  ball: Ball,
+): SeesawState[] {
+  return seesaws.map((s, i) => {
     if (i !== seesawIndex) return { ...s, left: [...s.left], right: [...s.right] }
     const left = [...s.left]
     const right = [...s.right]
@@ -228,8 +286,39 @@ export function dropBall(state: GameState, seesawIndex: number, side: 'left' | '
     else right.push(ball)
     return { left, right, angle: computeAngle(left, right) }
   })
+}
 
-  seesaws = processCatapults(seesaws, seesawIndex)
+// dropBall now returns the authoritative final state, the ordered list of
+// catapult throws, and the pre-catapult seesaw snapshot. The animation layer
+// replays `catapultEvents` step-by-step starting from `preCatapultSeesaws`;
+// the logic itself is resolved immediately.
+export interface DropResult {
+  state: GameState
+  catapultEvents: CatapultEvent[]
+  preCatapultSeesaws: SeesawState[]
+}
+
+export function dropBall(
+  state: GameState,
+  seesawIndex: number,
+  side: 'left' | 'right',
+): DropResult {
+  if (state.phase === 'gameover') {
+    return { state, catapultEvents: [], preCatapultSeesaws: state.seesaws }
+  }
+
+  const sw = state.seesaws[seesawIndex]
+  const targetStack = side === 'left' ? sw.left : sw.right
+  if (targetStack.length >= MAX_STACK) {
+    return { state, catapultEvents: [], preCatapultSeesaws: state.seesaws }
+  }
+
+  const ball = state.nextBall
+  const preCatapultSeesaws = applyManualDrop(state.seesaws, seesawIndex, side, ball)
+  let seesaws = preCatapultSeesaws
+
+  const catapultResult = processCatapults(seesaws, seesawIndex)
+  seesaws = catapultResult.seesaws
 
   // Cascade matches
   let totalRemoved = 0
@@ -245,10 +334,14 @@ export function dropBall(state: GameState, seesawIndex: number, side: 'left' | '
   const newScore = state.score + matchBonus
 
   return {
-    ...state,
-    seesaws,
-    score: newScore,
-    nextBall: createBall(newScore),
-    phase,
+    state: {
+      ...state,
+      seesaws,
+      score: newScore,
+      nextBall: createBall(newScore),
+      phase,
+    },
+    catapultEvents: catapultResult.events,
+    preCatapultSeesaws,
   }
 }

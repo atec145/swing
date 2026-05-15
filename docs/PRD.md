@@ -29,7 +29,7 @@ Their core need: a satisfying, low-friction puzzle loop that rewards clever plac
 | P0 (MVP) | Restart — button appears on game-over screen | Deployed |
 | P1 | Progressive difficulty — full/half (billiard-style) balls, color count grows with score (#1) | Planned |
 | P1 | High score persistence — save best score across sessions | Planned |
-| P1 | Animations — visual feedback for catapult launches and match clears | Planned |
+| P1 | Catapult animation — parabolic arc flight, weight-based launch distance, sequential chain reactions (#3) | Planned |
 | P1 | Sound effects — audio cues for drops, catapults, matches | Planned |
 | P2 | Difficulty levels — adjust number of colors or catapult threshold | Planned |
 | P2 | Mobile/touch support — tap targets sized for phone screens | Planned |
