@@ -61,11 +61,9 @@ export const PIVOT_Y = 490
 export const ARM_LENGTH = 45  // horizontal offset of each column from seesaw center; reduced from 58 so adjacent-seesaw balls never overlap
 export const BALL_RADIUS = 18
 export const BALL_SPACING = 40 // center-to-center vertical
+// The single fixed tilt angle. In the 3-state model a non-balanced seesaw
+// always sits at exactly ±MAX_ANGLE — there is no continuous range.
 export const MAX_ANGLE = Math.asin(BALL_SPACING / ARM_LENGTH) // ~62° — column travel at full imbalance equals exactly one ball level
-export const ANGLE_SCALE = 4.5 // = CATAPULT_THRESHOLD * 1.5; diff / ANGLE_SCALE gives tilt ratio clamped to MAX_ANGLE
-
-// Minimum weight difference needed to trigger a catapult
-export const CATAPULT_THRESHOLD = 3
 
 // Weight pool — original game shows weights up to 10. Lower weights remain
 // the most common; weights 6+ are rare to keep arm balance interesting

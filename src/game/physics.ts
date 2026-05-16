@@ -1,13 +1,31 @@
-import type { Ball } from './types'
-import { MAX_ANGLE, ANGLE_SCALE, MARGIN_X, SEESAW_SPACING, ARM_LENGTH, PIVOT_Y } from './constants'
+import type { Ball, SeesawTilt } from './types'
+import { MAX_ANGLE, MARGIN_X, SEESAW_SPACING, ARM_LENGTH, PIVOT_Y } from './constants'
 
 export function totalWeight(balls: Ball[]): number {
   return balls.reduce((sum, b) => sum + b.weight, 0)
 }
 
+// Discrete 3-state classifier. Pure comparison of total weights — the single
+// source of truth for which way a seesaw tips.
+export function computeTilt(left: Ball[], right: Ball[]): SeesawTilt {
+  const lw = totalWeight(left)
+  const rw = totalWeight(right)
+  if (lw > rw) return 'left'
+  if (rw > lw) return 'right'
+  return 'balanced'
+}
+
+// Fixed-value mapping from the discrete tilt to a render angle. There is no
+// continuous range any more: left → -MAX_ANGLE, balanced → 0, right → +MAX_ANGLE.
+// Positive angle = left side down (kept consistent with the previous model).
+export function angleForTilt(tilt: SeesawTilt): number {
+  if (tilt === 'left') return MAX_ANGLE
+  if (tilt === 'right') return -MAX_ANGLE
+  return 0
+}
+
 export function computeAngle(left: Ball[], right: Ball[]): number {
-  const diff = totalWeight(left) - totalWeight(right)
-  return Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, diff / ANGLE_SCALE))
+  return angleForTilt(computeTilt(left, right))
 }
 
 export function seesawCenterX(i: number): number {

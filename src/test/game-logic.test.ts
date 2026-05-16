@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createBall, createInitialState, dropBall as dropBallRaw, tierForScore } from '../game/logic'
 import { COLORS, DIFFICULTY_TIERS } from '../game/constants'
-import { computeAngle } from '../game/physics'
+import { computeAngle, computeTilt } from '../game/physics'
 import type { Ball, Color, SeesawState, GameState, Variant } from '../game/types'
 
 // Most assertions only care about the resulting GameState; this thin wrapper
@@ -15,7 +15,7 @@ function ball(color: Color, weight = 1, variant: Variant = 'full'): Ball {
 }
 
 function seesaw(left: Ball[], right: Ball[]): SeesawState {
-  return { left, right, angle: computeAngle(left, right) }
+  return { left, right, angle: computeAngle(left, right), tilt: computeTilt(left, right) }
 }
 
 function stateWith(seesaws: SeesawState[]): GameState {
@@ -100,18 +100,18 @@ describe('findMatches (via dropBall score)', () => {
 
 describe('catapult (slot-based throw distance)', () => {
   it('catapults ball diff slots to the LEFT when left side is heavier', () => {
-    // s0.left red(5) + dropped green(1) = weight 6; s0.right blue(1) = 1.
-    // diff = 5, left heavier → seesaw tips left → fromSlot = 1 (s0 right),
-    // ball flies LEFT: intended = 1-5 = -4 → slot 8 (seesaw 4 left).
+    // s0 starts right-heavy (blue 1, left empty → tilt 'right'). Dropping
+    // red(6) on the left flips it to 'left' (transition). lw=6, rw=1, diff=5,
+    // fromSlot = 1 (s0 right), ball flies LEFT: intended = 1-5 = -4 → slot 8.
     const initial: GameState = stateWith([
-      seesaw([ball('red', 5)], [ball('blue', 1)]),
+      seesaw([], [ball('blue', 1)]),
       seesaw([], []),
       seesaw([], []),
       seesaw([], []),
       seesaw([], []),
       seesaw([], []),
     ])
-    const withNextBall = { ...initial, nextBall: ball('green', 1) }
+    const withNextBall = { ...initial, nextBall: ball('red', 6) }
     const { state, catapultEvents } = dropBallRaw(withNextBall, 0, 'left')
 
     expect(state.seesaws[0].right.length).toBe(0)
@@ -146,7 +146,8 @@ describe('catapult (slot-based throw distance)', () => {
   })
 
   it('large diff: left heavier on s5, ball flies left without wrapping', () => {
-    // s5.left = red(8)+green(2)=10, s5.right = blue(1)=1, diff = 9.
+    // s5 starts right-heavy (blue 1). Drop red(10) on s5.left → left=10,
+    // right=1 → transition right→left. diff = 9.
     // fromSlot = 11, flies LEFT: intended = 11-9 = 2 → seesaw 1 left.
     const initial: GameState = stateWith([
       seesaw([], []),
@@ -154,9 +155,9 @@ describe('catapult (slot-based throw distance)', () => {
       seesaw([], []),
       seesaw([], []),
       seesaw([], []),
-      seesaw([ball('red', 8)], [ball('blue', 1)]),
+      seesaw([], [ball('blue', 1)]),
     ])
-    const withNextBall = { ...initial, nextBall: ball('green', 2) }
+    const withNextBall = { ...initial, nextBall: ball('red', 10) }
     const { state, catapultEvents } = dropBallRaw(withNextBall, 5, 'left')
     expect(catapultEvents).toHaveLength(1)
     expect(catapultEvents[0]).toMatchObject({ fromSlot: 11, toSlot: 2, diff: 9 })
@@ -164,7 +165,9 @@ describe('catapult (slot-based throw distance)', () => {
     expect(state.seesaws[1].left[0].color).toBe('blue')
   })
 
-  it('does NOT catapult when difference is below threshold', () => {
+  it('does NOT catapult when the tilt state does not change', () => {
+    // s0 is already left-heavy (red 2 vs blue 1 → tilt 'left'). Adding more
+    // weight to the left keeps it 'left' → no transition → no catapult.
     const initial: GameState = stateWith([
       seesaw([ball('red', 2)], [ball('blue', 1)]),
       seesaw([], []),
@@ -215,19 +218,19 @@ describe('variant-aware matching', () => {
   })
 
   it('catapulted half ball does not form a match with full balls of the same color', () => {
-    // s0.left red(5)+green(1)=6, s0.right half-blue(1)=1. diff=5, left heavier
-    // → seesaw tips left → fromSlot=1 (right), flies LEFT:
-    // intended = 1-5 = -4 → slot 8 (seesaw 4 left).
+    // s0 starts right-heavy (half-blue 1, left empty → tilt 'right'). Dropping
+    // red(6) on the left flips it to 'left' (transition). diff=5,
+    // fromSlot=1 (right), flies LEFT: intended = 1-5 = -4 → slot 8 (s4 left).
     // Two full-blue balls sit on seesaw 3 right — different slot, no match possible.
     const initial: GameState = stateWith([
-      seesaw([ball('red', 5)], [ball('blue', 1, 'half')]),
+      seesaw([], [ball('blue', 1, 'half')]),
       seesaw([], []),
       seesaw([], []),
       seesaw([], [ball('blue', 1, 'full'), ball('blue', 1, 'full')]),
       seesaw([], []),
       seesaw([], []),
     ])
-    const withGreenNext = { ...initial, nextBall: ball('green', 1) }
+    const withGreenNext = { ...initial, nextBall: ball('red', 6) }
     const result = dropBall(withGreenNext, 0, 'left')
     expect(result.score).toBe(0)
     // half-blue landed on seesaw 4 left; full-blue pair untouched on s3 right.

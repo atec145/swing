@@ -132,6 +132,9 @@ function drawBall(
   ctx.restore()
 }
 
+// `angle` is one of exactly three fixed values in the 3-state model
+// (+MAX_ANGLE = left down, 0 = balanced, -MAX_ANGLE = right down), so the
+// seesaw visually snaps into one of three discrete positions.
 function drawSeesaw(
   ctx: CanvasRenderingContext2D,
   cx: number,

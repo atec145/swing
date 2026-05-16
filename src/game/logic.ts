@@ -5,10 +5,9 @@ import {
   MATCH_MIN,
   COLORS,
   WEIGHT_POOL,
-  CATAPULT_THRESHOLD,
   DIFFICULTY_TIERS,
 } from './constants'
-import { totalWeight, computeAngle } from './physics'
+import { totalWeight, computeAngle, computeTilt } from './physics'
 
 let ballIdCounter = 0
 
@@ -33,7 +32,18 @@ export function createBall(score = 0, override?: Partial<Ball>): Ball {
 }
 
 function makeSeesaw(): SeesawState {
-  return { left: [], right: [], angle: 0 }
+  return { left: [], right: [], angle: 0, tilt: 'balanced' }
+}
+
+// Builds a SeesawState from its ball stacks, deriving both the discrete tilt
+// and the render angle. Single place that keeps `tilt` and `angle` in sync.
+function makeSeesawFrom(left: Ball[], right: Ball[]): SeesawState {
+  return {
+    left,
+    right,
+    tilt: computeTilt(left, right),
+    angle: computeAngle(left, right),
+  }
 }
 
 export function createInitialState(): GameState {
@@ -82,81 +92,99 @@ function resolveLandingSlot(
   return null
 }
 
-// Processes catapult chain reactions starting from the seesaw where a ball was
-// placed. The catapult only fires in the direction caused by the ball that was
-// just added: adding to the left can only tip the left side heavy enough to
-// launch the right ball, and vice versa. This prevents a ball dropped onto the
-// lighter (rising) arm from instantly triggering a catapult — the seesaw must
-// actually change its tipping direction.
+// Processes catapult chain reactions with the discrete 3-state model.
 //
-// Each seesaw fires at most once per chain. The BFS queue carries addedSide so
-// every chain step knows which side received the incoming ball.
+// A catapult fires on a seesaw when ALL hold:
+//   1. its tilt changed (prevTilt !== newTilt)
+//   2. the new tilt is not 'balanced'
+//   3. the rising (lighter) side has >= 1 ball
+//
+// The flying ball is the topmost ball on the rising side. Flight distance =
+// |sum(left) - sum(right)| positions. Direction:
+//   newTilt = 'left'  (left heavier) → right arm rises → right ball flies LEFT
+//   newTilt = 'right' (right heavier) → left arm rises  → left ball flies RIGHT
+//
+// The BFS starts at the seesaw that received the manually dropped ball. Each
+// landing re-evaluates its target seesaw → chain reactions. `prevTilt` per
+// seesaw is seeded from the pre-drop snapshot so the very first transition is
+// detected correctly; thereafter it tracks the live tilt before each landing.
+// A `visited` Set guarantees each seesaw catapults at most once per chain,
+// which also bounds the chain length and prevents infinite loops.
 function processCatapults(
-  seesaws: SeesawState[],
+  preDropSeesaws: SeesawState[],
+  postDropSeesaws: SeesawState[],
   startIndex: number,
-  startSide: 'left' | 'right',
 ): { seesaws: SeesawState[]; events: CatapultEvent[] } {
-  const s: SeesawState[] = seesaws.map(sw => ({
+  const s: SeesawState[] = postDropSeesaws.map(sw => ({
     ...sw,
     left: [...sw.left],
     right: [...sw.right],
   }))
 
+  // prevTilt[i] = the tilt of seesaw i *before* the change we are about to
+  // evaluate for it. Seeded from the pre-drop board.
+  const prevTilt = preDropSeesaws.map(sw => sw.tilt)
+
   const events: CatapultEvent[] = []
-  const queue: { index: number; addedSide: 'left' | 'right' }[] = [
-    { index: startIndex, addedSide: startSide },
-  ]
+  const queue: number[] = [startIndex]
   const visited = new Set<number>()
 
   while (queue.length > 0) {
-    const { index: i, addedSide } = queue.shift()!
+    const i = queue.shift()!
     if (visited.has(i)) continue
     visited.add(i)
 
+    const before = prevTilt[i]
+    const after = computeTilt(s[i].left, s[i].right)
+
+    // (1) no state change, or (2) changed to balanced → no catapult.
+    if (after === before || after === 'balanced') continue
+
     const lw = totalWeight(s[i].left)
     const rw = totalWeight(s[i].right)
+    const diff = Math.abs(lw - rw)
 
-    if (addedSide === 'left' && lw > rw + CATAPULT_THRESHOLD && s[i].right.length > 0) {
-      // Ball added to left → left tips down → right arm rises → right ball flies LEFT.
-      const diff = lw - rw
-      const ball = s[i].right.pop()!
-      s[i].angle = computeAngle(s[i].left, s[i].right)
+    let ball: Ball | undefined
+    let fromSlot: number
+    let dir: 1 | -1
+    let intended: number
 
-      const fromSlot = 2 * i + 1
-      const intended = fromSlot - diff
-      const toSlot = resolveLandingSlot(s, intended, -1)
+    if (after === 'left') {
+      // Left heavier → right arm rises → topmost RIGHT ball flies LEFT.
+      if (s[i].right.length === 0) continue // (3) rising side empty
+      ball = s[i].right.pop()!
+      fromSlot = 2 * i + 1
+      dir = -1
+      intended = fromSlot - diff
+    } else {
+      // Right heavier → left arm rises → topmost LEFT ball flies RIGHT.
+      if (s[i].left.length === 0) continue // (3) rising side empty
+      ball = s[i].left.pop()!
+      fromSlot = 2 * i
+      dir = 1
+      intended = fromSlot + diff
+    }
 
-      if (toSlot !== null) {
-        const sw = s[slotToSeesaw(toSlot)]
-        const side = slotSide(toSlot)
-        ;(side === 'left' ? sw.left : sw.right).push(ball)
-        sw.angle = computeAngle(sw.left, sw.right)
-        events.push({ fromSlot, toSlot, ball, diff })
-        queue.push({ index: slotToSeesaw(toSlot), addedSide: side })
-      } else {
-        // Every slot full — ball is lost; still animate the launch.
-        events.push({ fromSlot, toSlot: fromSlot - diff, ball, diff })
-      }
-    } else if (addedSide === 'right' && rw > lw + CATAPULT_THRESHOLD && s[i].left.length > 0) {
-      // Ball added to right → right tips down → left arm rises → left ball flies RIGHT.
-      const diff = rw - lw
-      const ball = s[i].left.pop()!
-      s[i].angle = computeAngle(s[i].left, s[i].right)
+    // The launching seesaw's stack changed — refresh its derived fields.
+    s[i] = makeSeesawFrom(s[i].left, s[i].right)
 
-      const fromSlot = 2 * i
-      const intended = fromSlot + diff
-      const toSlot = resolveLandingSlot(s, intended, 1)
+    const toSlot = resolveLandingSlot(s, intended, dir)
 
-      if (toSlot !== null) {
-        const sw = s[slotToSeesaw(toSlot)]
-        const side = slotSide(toSlot)
-        ;(side === 'left' ? sw.left : sw.right).push(ball)
-        sw.angle = computeAngle(sw.left, sw.right)
-        events.push({ fromSlot, toSlot, ball, diff })
-        queue.push({ index: slotToSeesaw(toSlot), addedSide: side })
-      } else {
-        events.push({ fromSlot, toSlot: fromSlot + diff, ball, diff })
-      }
+    if (toSlot !== null) {
+      const targetIdx = slotToSeesaw(toSlot)
+      const side = slotSide(toSlot)
+      const tgt = s[targetIdx]
+      const left = side === 'left' ? [...tgt.left, ball] : [...tgt.left]
+      const right = side === 'right' ? [...tgt.right, ball] : [...tgt.right]
+      // Record the target's tilt BEFORE landing so its own transition is
+      // evaluated correctly when it is dequeued.
+      prevTilt[targetIdx] = tgt.tilt
+      s[targetIdx] = makeSeesawFrom(left, right)
+      events.push({ fromSlot, toSlot, ball, diff })
+      queue.push(targetIdx)
+    } else {
+      // Every slot full — ball is lost; still animate the launch.
+      events.push({ fromSlot, toSlot: intended, ball, diff })
     }
   }
 
@@ -263,7 +291,7 @@ function removeAndRecalc(seesaws: SeesawState[], toRemove: Set<string>): SeesawS
   return seesaws.map(sw => {
     const left = sw.left.filter(b => !toRemove.has(b.id))
     const right = sw.right.filter(b => !toRemove.has(b.id))
-    return { left, right, angle: computeAngle(left, right) }
+    return makeSeesawFrom(left, right)
   })
 }
 
@@ -286,7 +314,7 @@ export function applyManualDrop(
     const right = [...s.right]
     if (side === 'left') left.push(ball)
     else right.push(ball)
-    return { left, right, angle: computeAngle(left, right) }
+    return makeSeesawFrom(left, right)
   })
 }
 
@@ -316,11 +344,17 @@ export function dropBall(
   }
 
   const ball = state.nextBall
+  // Snapshot the board *before* the drop so processCatapults can detect the
+  // tilt transition the dropped ball causes on the start seesaw.
+  const preDropSeesaws = state.seesaws
   const preCatapultSeesaws = applyManualDrop(state.seesaws, seesawIndex, side, ball)
-  let seesaws = preCatapultSeesaws
 
-  const catapultResult = processCatapults(seesaws, seesawIndex, side)
-  seesaws = catapultResult.seesaws
+  const catapultResult = processCatapults(
+    preDropSeesaws,
+    preCatapultSeesaws,
+    seesawIndex,
+  )
+  let seesaws = catapultResult.seesaws
 
   // Cascade matches
   let totalRemoved = 0

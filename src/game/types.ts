@@ -20,10 +20,20 @@ export interface Ball {
   weight: number
 }
 
+// Discrete 3-state tilt model. A seesaw is always in exactly one of these
+// states — there is no continuous angle range.
+//   'left'     → left side heavier  (left arm down, right arm up)
+//   'balanced' → equal weight       (horizontal)
+//   'right'    → right side heavier (right arm down, left arm up)
+export type SeesawTilt = 'left' | 'balanced' | 'right'
+
 export interface SeesawState {
   left: Ball[]  // index 0 = bottom, last = top
   right: Ball[] // index 0 = bottom, last = top
-  angle: number // radians, positive = left side down
+  // radians — derived from `tilt`, only ever one of three fixed values
+  // (-MAX_ANGLE, 0, +MAX_ANGLE). Kept for the renderer + match geometry.
+  angle: number
+  tilt: SeesawTilt // the authoritative discrete state
 }
 
 // A single catapult throw within a chain reaction. The animation layer
