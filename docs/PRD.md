@@ -21,6 +21,7 @@ Their core need: a satisfying, low-friction puzzle loop that rewards clever plac
 | P1 | Keyboard-controlled crane launcher — futuristic robot crane with ball-drop animation (#2) | Deployed |
 | P0 (MVP) | Seesaw physics — angle updates based on total weight each side | Deployed |
 | P0 (MVP) | Catapult chain reactions — imbalance > threshold launches top ball to neighbor | Deployed |
+| P0 (MVP) | Seesaw physics rework — 3-state model (left/balanced/right), weight-difference catapult distance, chain reactions (#4) | Planned |
 | P0 (MVP) | Match detection — 3+ same-color balls in horizontal rows, interleaved rows, or vertical stacks | Deployed |
 | P0 (MVP) | Cascade clearing — matches re-evaluated after each clear until board is stable | Deployed |
 | P0 (MVP) | Scoring — 10 pts per ball cleared + 50 pts bonus per match group | Deployed |
