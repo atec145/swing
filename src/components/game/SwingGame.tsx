@@ -9,6 +9,7 @@ export default function SwingGame() {
     gameState,
     handleDrop,
     handleCraneMove,
+    handleCraneSet,
     handleConsumeCatapult,
     handleConsumeMatch,
     handleRestart,
@@ -20,6 +21,7 @@ export default function SwingGame() {
         gameState={gameState}
         onDrop={handleDrop}
         onCraneMove={handleCraneMove}
+        onCraneSetPosition={handleCraneSet}
         onConsumeCatapult={handleConsumeCatapult}
         onConsumeMatch={handleConsumeMatch}
         onRestart={handleRestart}

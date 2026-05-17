@@ -34,6 +34,7 @@ interface Props {
   gameState: GameState
   onDrop: (seesawIndex: number, side: 'left' | 'right') => void
   onCraneMove: (delta: -1 | 1) => void
+  onCraneSetPosition: (index: number) => void
   onConsumeCatapult: (seq: number) => void
   onConsumeMatch: (seq: number) => void
   onRestart: () => void
@@ -215,6 +216,7 @@ export default function GameCanvas({
   gameState,
   onDrop,
   onCraneMove,
+  onCraneSetPosition,
   onConsumeCatapult,
   onConsumeMatch,
   onRestart,
@@ -231,6 +233,10 @@ export default function GameCanvas({
   onConsumeMatchRef.current = onConsumeMatch
   const onDropRef = useRef(onDrop)
   onDropRef.current = onDrop
+  const onCraneSetPositionRef = useRef(onCraneSetPosition)
+  onCraneSetPositionRef.current = onCraneSetPosition
+  const onRestartRef = useRef(onRestart)
+  onRestartRef.current = onRestart
 
   const animRef = useRef<{
     craneCurrentX: number
@@ -267,6 +273,10 @@ export default function GameCanvas({
     dissolveBallIds: Set<string>          // balls beaming out in the active group
     dissolveStartT: number                // start time of the active group
     dissolveFinishSeq: number | null      // seq to commit once all groups done
+
+    // Override duration for the next crane move (set by touch handler to scale
+    // with jump distance; consumed and cleared by the cranePositionIndex effect).
+    pendingMoveDuration: number | null
   }>({
     craneCurrentX: craneXForIndex(gameState.cranePositionIndex),
     craneTargetX: craneXForIndex(gameState.cranePositionIndex),
@@ -295,6 +305,7 @@ export default function GameCanvas({
     dissolveBallIds: new Set(),
     dissolveStartT: 0,
     dissolveFinishSeq: null,
+    pendingMoveDuration: null,
   })
 
   const isAnimatingCatapult = useCallback(() => {
@@ -359,7 +370,8 @@ export default function GameCanvas({
       a.craneMoveStartX = a.craneCurrentX
       a.craneTargetX = newTarget
       a.craneMoveStartT = performance.now()
-      a.craneMoveDuration = CRANE_MOVE_DURATION
+      a.craneMoveDuration = a.pendingMoveDuration ?? CRANE_MOVE_DURATION
+      a.pendingMoveDuration = null
       a.isMoving = true
     }
   }, [gameState.cranePositionIndex, gameState.seesaws, gameState.score, targetCraneX])
@@ -723,6 +735,47 @@ export default function GameCanvas({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onCraneMove, onRestart, isInputLocked])
 
+  // Non-passive touch handler so we can preventDefault and block page scroll.
+  // React's synthetic onTouchStart is passive by default, so we register natively.
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault()
+      const state = stateRef.current
+      if (state.phase === 'gameover') {
+        onRestartRef.current()
+        return
+      }
+      if (isInputLocked()) return
+
+      const touch = e.changedTouches[0]
+      const rect = canvas.getBoundingClientRect()
+      const logicalX = (touch.clientX - rect.left) * (CW / rect.width)
+
+      // Find the nearest of the 12 discrete crane slots.
+      let nearestSlot = 0
+      let nearestDist = Infinity
+      for (let i = 0; i < NUM_SLOTS; i++) {
+        const dist = Math.abs(craneXForIndex(i) - logicalX)
+        if (dist < nearestDist) { nearestDist = dist; nearestSlot = i }
+      }
+
+      // Scale move duration by distance so long jumps animate smoothly.
+      const slotDist = Math.abs(nearestSlot - state.cranePositionIndex)
+      animRef.current.pendingMoveDuration = slotDist <= 1
+        ? CRANE_MOVE_DURATION
+        : Math.min(slotDist * 75, 500)
+
+      animRef.current.queuedDrop = true
+      onCraneSetPositionRef.current(nearestSlot)
+    }
+
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false })
+    return () => canvas.removeEventListener('touchstart', onTouchStart)
+  }, [isInputLocked])
+
   const handleClick = useCallback(() => {
     if (gameState.phase === 'gameover') onRestart()
   }, [gameState.phase, onRestart])
@@ -735,9 +788,9 @@ export default function GameCanvas({
       onClick={handleClick}
       tabIndex={0}
       role="application"
-      aria-label="Swing game board. Use left and right arrow keys to move the crane, down arrow or Enter to drop the ball."
+      aria-label="Swing game board. Use arrow keys or tap to move the crane and drop the ball."
       className="block w-full max-w-[900px] rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
-      style={{ aspectRatio: `${CW}/${CH}` }}
+      style={{ aspectRatio: `${CW}/${CH}`, touchAction: 'none' }}
     />
   )
 }
