@@ -762,14 +762,19 @@ export default function GameCanvas({
         if (dist < nearestDist) { nearestDist = dist; nearestSlot = i }
       }
 
-      // Scale move duration by distance so long jumps animate smoothly.
       const slotDist = Math.abs(nearestSlot - state.cranePositionIndex)
-      animRef.current.pendingMoveDuration = slotDist <= 1
-        ? CRANE_MOVE_DURATION
-        : Math.min(slotDist * 75, 500)
-
-      animRef.current.queuedDrop = true
-      onCraneSetPositionRef.current(nearestSlot)
+      if (slotDist === 0) {
+        // Crane already at the tapped slot — fire immediately.
+        const trigger = (animRef.current as unknown as { _triggerRelease: () => void })._triggerRelease
+        trigger?.()
+      } else {
+        // Scale move duration by distance so long jumps animate smoothly.
+        animRef.current.pendingMoveDuration = slotDist <= 1
+          ? CRANE_MOVE_DURATION
+          : Math.min(slotDist * 75, 500)
+        animRef.current.queuedDrop = true
+        onCraneSetPositionRef.current(nearestSlot)
+      }
     }
 
     canvas.addEventListener('touchstart', onTouchStart, { passive: false })
