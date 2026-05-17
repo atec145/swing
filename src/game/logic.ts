@@ -240,6 +240,10 @@ function armOffset(angle: number, side: 'left' | 'right'): number {
 // Level = stackIndex + armOffset: a tilted arm shifts all its balls up or down
 // by one slot relative to a balanced arm, matching the original game's 3-level
 // geometry (unten / mitte / oben).
+// Only the interleaved scan [s0.left, s0.right, s1.left, s1.right, …] is used
+// for horizontal matching — a null (empty position) in this sequence represents
+// a genuine visual gap and breaks any run. Separate left-only / right-only
+// scans were removed because they matched balls across such gaps (Bug #7).
 // Vertically stacked same-type balls are cleared only when they are adjacent
 // to a ball that is already part of a horizontal match.
 function findMatches(seesaws: SeesawState[]): Set<string> {
@@ -265,8 +269,6 @@ function findMatches(seesaws: SeesawState[]): Set<string> {
   }
 
   for (let L = minLevel; L <= maxLevel; L++) {
-    scanRow(seesaws.map(sw => getBallAtLevel(sw, 'left', L)), toRemove)
-    scanRow(seesaws.map(sw => getBallAtLevel(sw, 'right', L)), toRemove)
     scanRow(seesaws.flatMap(sw => [getBallAtLevel(sw, 'left', L), getBallAtLevel(sw, 'right', L)]), toRemove)
   }
 

@@ -48,9 +48,14 @@ describe('findMatches (via dropBall score)', () => {
     expect(result.score).toBe(0)
   })
 
-  it('awards points for 3 same-color balls in left-side horizontal row', () => {
+  it('awards points for 3 same-color balls in a contiguous interleaved run', () => {
+    // s0 is balanced (both arms have blue) → both balls at level 0.
+    // s1.left=[blue]: initially left-heavy. Dropping blue on s1.right balances it
+    // → s1.left[0] and s1.right[0] also at level 0.
+    // Interleaved at L=0: [blue(s0.left), blue(s0.right), blue(s1.left), blue(s1.right), ...]
+    // → contiguous run of 4, match fires.
     const initial: GameState = stateWith([
-      seesaw([ball('blue')], []),
+      seesaw([ball('blue')], [ball('blue')]),
       seesaw([ball('blue')], []),
       seesaw([], []),
       seesaw([], []),
@@ -59,29 +64,84 @@ describe('findMatches (via dropBall score)', () => {
     ])
     const withBlueNext = { ...initial, nextBall: ball('blue', 1) }
 
-    const result = dropBall(withBlueNext, 2, 'left')
+    const result = dropBall(withBlueNext, 1, 'right')
     expect(result.score).toBeGreaterThan(0)
+    expect(result.seesaws[0].left.length).toBe(0)
+    expect(result.seesaws[0].right.length).toBe(0)
+    expect(result.seesaws[1].left.length).toBe(0)
+    expect(result.seesaws[1].right.length).toBe(0)
   })
 
   it('horizontal match also clears vertically adjacent same-color balls', () => {
-    // s0.left and s1.left each have 2 blue balls stacked.
-    // Dropping blue on s2.left completes a horizontal match at h=0.
-    // The second blue (h=1) in s0.left and s1.left should also be cleared.
+    // s0 balanced with 2 blue on each arm (levels 0 and 1).
+    // s1 balanced with 1 blue on each arm (level 0).
+    // Dropping any ball on s2.left triggers findMatches which finds the run
+    // [blue(s0.left@0), blue(s0.right@0), blue(s1.left@0), blue(s1.right@0)] → match.
+    // Vertical expansion then adds the level-1 balls in s0.
     const initial: GameState = stateWith([
-      seesaw([ball('blue'), ball('blue')], []),
-      seesaw([ball('blue'), ball('blue')], []),
+      seesaw([ball('blue'), ball('blue')], [ball('blue'), ball('blue')]),
+      seesaw([ball('blue')], [ball('blue')]),
       seesaw([], []),
       seesaw([], []),
       seesaw([], []),
       seesaw([], []),
     ])
-    const withBlueNext = { ...initial, nextBall: ball('blue', 1) }
+    // Drop a non-blue ball so s2 doesn't interfere with the match
+    const withGreenNext = { ...initial, nextBall: ball('green', 1) }
 
-    const result = dropBall(withBlueNext, 2, 'left')
+    const result = dropBall(withGreenNext, 2, 'left')
     expect(result.score).toBeGreaterThan(0)
     expect(result.seesaws[0].left.length).toBe(0)
+    expect(result.seesaws[0].right.length).toBe(0)
     expect(result.seesaws[1].left.length).toBe(0)
-    expect(result.seesaws[2].left.length).toBe(0)
+    expect(result.seesaws[1].right.length).toBe(0)
+  })
+
+  it('same-side balls with empty opposite arms do NOT match (Bug #7 regression)', () => {
+    // s0, s1, s2 each balanced with blue only on the left arm — so left arm is
+    // at level 0 and right arm is empty. In the interleaved layout these balls
+    // appear at positions 0, 2, 4 with nulls at 1, 3, 5 between them — NOT a
+    // contiguous run, so no match should fire.
+    const initial: GameState = stateWith([
+      seesaw([ball('blue')], [ball('red')]),  // balanced: left=blue, right=red
+      seesaw([ball('blue')], [ball('red')]),
+      seesaw([], []),
+      seesaw([], []),
+      seesaw([], []),
+      seesaw([], []),
+    ])
+    // Drop blue on s2.left. After drop: s2 left-heavy, blue at level -1.
+    // s0 and s1 are balanced so their left blues are at level 0.
+    // Interleaved at L=0: [blue(s0.left), red(s0.right), blue(s1.left), red(s1.right), null, null, ...]
+    // No 3-ball contiguous blue run → no match.
+    const withBlueNext = { ...initial, nextBall: ball('blue', 1) }
+    const result = dropBall(withBlueNext, 2, 'left')
+    expect(result.score).toBe(0)
+    expect(result.seesaws[0].left.length).toBe(1)
+    expect(result.seesaws[1].left.length).toBe(1)
+    expect(result.seesaws[2].left.length).toBe(1)
+  })
+
+  it('adjacent same-color ball on opposite arm IS included when run is contiguous (Bug #7 regression)', () => {
+    // s0 balanced (blue on both arms at level 0).
+    // s1 balanced (blue on both arms at level 0).
+    // Interleaved at L=0: [blue, blue, blue, blue, ...] — run of 4.
+    // All four balls must be cleared (s0.left is part of the run, not skipped).
+    const initial: GameState = stateWith([
+      seesaw([ball('blue')], [ball('blue')]),
+      seesaw([ball('blue')], [ball('blue')]),
+      seesaw([], []),
+      seesaw([], []),
+      seesaw([], []),
+      seesaw([], []),
+    ])
+    const withGreenNext = { ...initial, nextBall: ball('green', 1) }
+    const result = dropBall(withGreenNext, 2, 'left')
+    expect(result.score).toBeGreaterThan(0)
+    expect(result.seesaws[0].left.length).toBe(0)
+    expect(result.seesaws[0].right.length).toBe(0)
+    expect(result.seesaws[1].left.length).toBe(0)
+    expect(result.seesaws[1].right.length).toBe(0)
   })
 
   it('no points when balls do not match', () => {
@@ -205,8 +265,10 @@ describe('variant-aware matching', () => {
   })
 
   it('three half-red balls DO match', () => {
+    // s0 balanced (half-red on both arms at level 0), s1.left=half-red.
+    // Dropping half-red on s1.right balances s1 → contiguous interleaved run of 4.
     const initial: GameState = stateWith([
-      seesaw([ball('red', 1, 'half')], []),
+      seesaw([ball('red', 1, 'half')], [ball('red', 1, 'half')]),
       seesaw([ball('red', 1, 'half')], []),
       seesaw([], []),
       seesaw([], []),
@@ -214,7 +276,7 @@ describe('variant-aware matching', () => {
       seesaw([], []),
     ])
     const withHalfRedNext = { ...initial, nextBall: ball('red', 1, 'half') }
-    const result = dropBall(withHalfRedNext, 2, 'left')
+    const result = dropBall(withHalfRedNext, 1, 'right')
     expect(result.score).toBeGreaterThan(0)
   })
 

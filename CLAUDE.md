@@ -48,10 +48,8 @@ All pure game logic lives in `src/game/` — no React or DOM dependencies:
 - Ball falls off edge if no neighbor exists
 
 **Match types checked (all at once):**
-- `[s0.left[h], s1.left[h], …]` — left-side horizontal rows
-- `[s0.right[h], s1.right[h], …]` — right-side horizontal rows
-- `[s0.left[h], s0.right[h], s1.left[h], …]` — interleaved row
-- Each individual stack `sw.left` and `sw.right` — vertical
+- `[s0.left[h], s0.right[h], s1.left[h], s1.right[h], …]` — interleaved row at physical level h (only scan used for horizontal; a null position breaks adjacency, preventing non-adjacent same-side matches)
+- Vertical expansion: each horizontally matched ball extends up/down through contiguous same-type balls in the same arm
 
 ## React Layer
 
