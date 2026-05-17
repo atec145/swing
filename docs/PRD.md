@@ -33,6 +33,7 @@ Their core need: a satisfying, low-friction puzzle loop that rewards clever plac
 | P1 | Catapult animation — parabolic arc flight, weight-based launch distance, sequential chain reactions (#3) | Planned |
 | P1 | Sound effects — audio cues for drops, catapults, matches | Planned |
 | P2 | Difficulty levels — adjust number of colors or catapult threshold | Planned |
+| P1 | Match dissolve animation — Star Trek transporter beam effect when balls are cleared (#5) | Planned |
 | P2 | Mobile/touch support — tap targets sized for phone screens | Planned |
 
 ## Success Metrics
