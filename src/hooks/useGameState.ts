@@ -10,30 +10,35 @@ type Action =
   | { type: 'CRANE_MOVE'; delta: -1 | 1 }
   | { type: 'CRANE_SET'; index: number }
   | { type: 'CONSUME_CATAPULT'; seq: number }
+  | { type: 'CONSUME_MATCH'; seq: number }
   | { type: 'RESTART' }
 
 // Monotonic sequence so the animation layer can tell two consecutive drops
-// apart even when they produce identical event lists.
-let catapultSeq = 0
+// apart even when they produce identical event lists. Shared by the catapult
+// and match side-channels so a single drop carries one seq end-to-end.
+let dropSeq = 0
 
 function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case 'DROP': {
-      const { state: next, catapultEvents, preCatapultSeesaws } = dropBall(
-        state,
-        action.seesawIndex,
-        action.side,
-      )
-      if (catapultEvents.length === 0) {
-        return { ...next, pendingCatapult: null }
+      const { state: next, catapultEvents, preCatapultSeesaws, matchGroups } =
+        dropBall(state, action.seesawIndex, action.side)
+
+      if (catapultEvents.length === 0 && matchGroups.length === 0) {
+        return { ...next, pendingCatapult: null, pendingMatch: null }
       }
+
+      // One seq per drop, shared by both side-channels. The canvas plays the
+      // catapult replay first, then hands off to the dissolve groups.
+      const seq = ++dropSeq
       return {
         ...next,
-        pendingCatapult: {
-          seq: ++catapultSeq,
-          events: catapultEvents,
-          preCatapultSeesaws,
-        },
+        pendingCatapult:
+          catapultEvents.length > 0
+            ? { seq, events: catapultEvents, preCatapultSeesaws }
+            : null,
+        pendingMatch:
+          matchGroups.length > 0 ? { seq, groups: matchGroups } : null,
       }
     }
     case 'CONSUME_CATAPULT': {
@@ -41,6 +46,12 @@ function reducer(state: GameState, action: Action): GameState {
         return state
       }
       return { ...state, pendingCatapult: null }
+    }
+    case 'CONSUME_MATCH': {
+      if (!state.pendingMatch || state.pendingMatch.seq !== action.seq) {
+        return state
+      }
+      return { ...state, pendingMatch: null }
     }
     case 'CRANE_MOVE': {
       if (state.phase === 'gameover') return state
@@ -82,6 +93,10 @@ export function useGameState() {
     dispatch({ type: 'CONSUME_CATAPULT', seq })
   }, [])
 
+  const handleConsumeMatch = useCallback((seq: number) => {
+    dispatch({ type: 'CONSUME_MATCH', seq })
+  }, [])
+
   const handleRestart = useCallback(() => {
     dispatch({ type: 'RESTART' })
   }, [])
@@ -92,6 +107,7 @@ export function useGameState() {
     handleCraneMove,
     handleCraneSet,
     handleConsumeCatapult,
+    handleConsumeMatch,
     handleRestart,
   }
 }

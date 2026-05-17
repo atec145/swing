@@ -18,6 +18,7 @@ function stateWith(seesaws: SeesawState[], nextBall: Ball): GameState {
     seesaws, score: 0, nextBall, phase: 'waiting',
     hoverSeesaw: null, hoverSide: null, cranePositionIndex: 0,
     pendingCatapult: null,
+    pendingMatch: null,
   }
 }
 

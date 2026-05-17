@@ -1,8 +1,20 @@
 'use client'
 
 import { useRef, useEffect, useCallback } from 'react'
-import type { Ball, CatapultEvent, GameState, SeesawState } from '@/game/types'
-import { render, craneXForIndex, slotAnchor, type CraneAnim } from '@/game/renderer'
+import type {
+  Ball,
+  CatapultEvent,
+  GameState,
+  MatchGroup,
+  SeesawState,
+} from '@/game/types'
+import {
+  render,
+  craneXForIndex,
+  slotAnchor,
+  type CraneAnim,
+  type DissolveAnim,
+} from '@/game/renderer'
 import { computeAngle } from '@/game/physics'
 import {
   CW, CH,
@@ -23,8 +35,14 @@ interface Props {
   onDrop: (seesawIndex: number, side: 'left' | 'right') => void
   onCraneMove: (delta: -1 | 1) => void
   onConsumeCatapult: (seq: number) => void
+  onConsumeMatch: (seq: number) => void
   onRestart: () => void
 }
+
+// Transporter dissolve phase durations (ms) — see Issue #5 timing table.
+// Index = phase number; total 3.3s per group.
+const DISSOLVE_PHASE_MS = [500, 500, 1000, 800, 500] as const
+const DISSOLVE_TOTAL_MS = DISSOLVE_PHASE_MS.reduce((a, b) => a + b, 0)
 
 const NUM_SLOTS = NUM_SEESAWS * 2
 
@@ -198,6 +216,7 @@ export default function GameCanvas({
   onDrop,
   onCraneMove,
   onConsumeCatapult,
+  onConsumeMatch,
   onRestart,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -208,6 +227,8 @@ export default function GameCanvas({
 
   const onConsumeCatapultRef = useRef(onConsumeCatapult)
   onConsumeCatapultRef.current = onConsumeCatapult
+  const onConsumeMatchRef = useRef(onConsumeMatch)
+  onConsumeMatchRef.current = onConsumeMatch
   const onDropRef = useRef(onDrop)
   onDropRef.current = onDrop
 
@@ -238,6 +259,14 @@ export default function GameCanvas({
     segIndex: number
     segStartT: number
     currentEvent: CatapultEvent | null
+
+    // --- Match dissolve replay ---
+    dissolveSeq: number | null            // seq currently being / already animated
+    dissolveGroups: MatchGroup[]          // remaining cascade rounds
+    dissolveVisual: SeesawState[] | null  // snapshot with doomed balls present
+    dissolveBallIds: Set<string>          // balls beaming out in the active group
+    dissolveStartT: number                // start time of the active group
+    dissolveFinishSeq: number | null      // seq to commit once all groups done
   }>({
     craneCurrentX: craneXForIndex(gameState.cranePositionIndex),
     craneTargetX: craneXForIndex(gameState.cranePositionIndex),
@@ -260,6 +289,12 @@ export default function GameCanvas({
     segIndex: 0,
     segStartT: 0,
     currentEvent: null,
+    dissolveSeq: null,
+    dissolveGroups: [],
+    dissolveVisual: null,
+    dissolveBallIds: new Set(),
+    dissolveStartT: 0,
+    dissolveFinishSeq: null,
   })
 
   const isAnimatingCatapult = useCallback(() => {
@@ -267,12 +302,22 @@ export default function GameCanvas({
     return a.catapultVisual !== null
   }, [])
 
-  // Input is locked while releasing, while a ball falls, OR while a catapult
-  // chain is replaying.
+  const isAnimatingDissolve = useCallback(() => {
+    const a = animRef.current
+    return a.dissolveVisual !== null
+  }, [])
+
+  // Input is locked while releasing, while a ball falls, while a catapult
+  // chain is replaying, OR while a match dissolve is animating.
   const isInputLocked = useCallback(() => {
     const a = animRef.current
-    return a.isReleasing || a.fallingBall !== null || isAnimatingCatapult()
-  }, [isAnimatingCatapult])
+    return (
+      a.isReleasing ||
+      a.fallingBall !== null ||
+      isAnimatingCatapult() ||
+      isAnimatingDissolve()
+    )
+  }, [isAnimatingCatapult, isAnimatingDissolve])
 
   const targetCraneX = useCallback((posIndex: number) => craneXForIndex(posIndex), [])
 
@@ -301,6 +346,12 @@ export default function GameCanvas({
       a.catapultPendingFinishSeq = null
       a.segments = []
       a.currentEvent = null
+      // Abort any in-flight dissolve on restart.
+      a.dissolveSeq = null
+      a.dissolveGroups = []
+      a.dissolveVisual = null
+      a.dissolveBallIds = new Set()
+      a.dissolveFinishSeq = null
       return
     }
 
@@ -328,6 +379,25 @@ export default function GameCanvas({
     a.segIndex = 0
     a.currentEvent = null
   }, [gameState.pendingCatapult])
+
+  // Detect a fresh match-dissolve side-channel. We only record it here; the
+  // tick loop starts the first group once any preceding catapult replay for
+  // the same seq has finished (catapult → match ordering, per spec).
+  useEffect(() => {
+    const pending = gameState.pendingMatch
+    if (!pending) return
+    const a = animRef.current
+    if (a.dissolveSeq === pending.seq) return
+
+    a.dissolveSeq = pending.seq
+    a.dissolveGroups = pending.groups.map(g => ({
+      ballIds: [...g.ballIds],
+      seesaws: cloneSeesaws(g.seesaws),
+    }))
+    a.dissolveFinishSeq = pending.seq
+    a.dissolveVisual = null
+    a.dissolveBallIds = new Set()
+  }, [gameState.pendingMatch])
 
   // RAF loop.
   useEffect(() => {
@@ -376,10 +446,58 @@ export default function GameCanvas({
       }
     }
 
+    // Loads the next match group (or finishes the dissolve sequence). Called
+    // once the previous group's 3.3s timeline elapses, and once the catapult
+    // replay for this seq has fully committed (catapult → match ordering).
+    const advanceDissolve = (now: number) => {
+      const a = animRef.current
+      if (a.dissolveGroups.length > 0) {
+        const g = a.dissolveGroups.shift()!
+        a.dissolveVisual = g.seesaws
+        a.dissolveBallIds = new Set(g.ballIds)
+        a.dissolveStartT = now
+        return
+      }
+      // No more groups → commit the already-computed final state.
+      const finishSeq = a.dissolveFinishSeq
+      a.dissolveVisual = null
+      a.dissolveBallIds = new Set()
+      a.dissolveFinishSeq = null
+      if (finishSeq !== null) onConsumeMatchRef.current(finishSeq)
+    }
+
+    // Maps elapsed ms within a group to per-ball { phase, t }. All balls in
+    // the group share one timeline, so they beam out perfectly in sync.
+    const buildDissolveAnim = (
+      ids: Set<string>,
+      elapsed: number,
+      frame: number,
+    ): DissolveAnim => {
+      let phase = 0
+      let acc = 0
+      for (let p = 0; p < DISSOLVE_PHASE_MS.length; p++) {
+        if (elapsed < acc + DISSOLVE_PHASE_MS[p]) {
+          phase = p
+          break
+        }
+        acc += DISSOLVE_PHASE_MS[p]
+        phase = p
+      }
+      const t = Math.min(1, (elapsed - acc) / DISSOLVE_PHASE_MS[phase])
+      const map: DissolveAnim = new Map()
+      for (const id of ids) {
+        map.set(id, { phase: phase as 0 | 1 | 2 | 3 | 4, t, frame })
+      }
+      return map
+    }
+
+    let frameCount = 0
+
     const tick = () => {
       if (!running) return
       const a = animRef.current
       const now = performance.now()
+      frameCount++
 
       // Crane glide
       if (a.isMoving) {
@@ -468,25 +586,54 @@ export default function GameCanvas({
         }
       }
 
-      // Build the GameState to render: during a catapult replay we substitute
-      // the evolving visual snapshot so the board matches the flying ball.
+      // Match dissolve replay. Starts only after any catapult replay for the
+      // same seq has fully committed (a.catapultVisual === null) so the beam
+      // plays on the settled board, per spec.
+      let dissolveAnim: DissolveAnim | undefined
+      if (!a.catapultVisual && a.dissolveSeq !== null) {
+        if (!a.dissolveVisual && a.dissolveGroups.length > 0) {
+          advanceDissolve(now)
+        }
+        if (a.dissolveVisual) {
+          const elapsed = now - a.dissolveStartT
+          if (elapsed >= DISSOLVE_TOTAL_MS) {
+            advanceDissolve(now)
+          }
+          if (a.dissolveVisual) {
+            dissolveAnim = buildDissolveAnim(
+              a.dissolveBallIds,
+              Math.min(elapsed, DISSOLVE_TOTAL_MS - 1),
+              frameCount,
+            )
+          }
+        }
+      }
+
+      // Build the GameState to render. Priority: catapult replay snapshot,
+      // then the dissolve snapshot (doomed balls still present), else live.
       const baseState = stateRef.current
       const renderState: GameState = a.catapultVisual
         ? { ...baseState, seesaws: a.catapultVisual }
-        : baseState
+        : a.dissolveVisual
+          ? { ...baseState, seesaws: a.dissolveVisual }
+          : baseState
 
       const craneAnim: CraneAnim = {
         craneX: a.craneCurrentX,
         releaseProgress: a.isReleasing ? releaseProgress : 0,
         showBallInCrane:
-          !a.isReleasing && !a.fallingBall && !a.pendingDrop && !isAnimatingCatapult(),
+          !a.isReleasing &&
+          !a.fallingBall &&
+          !a.pendingDrop &&
+          !isAnimatingCatapult() &&
+          !isAnimatingDissolve(),
         fallingBall: a.fallingBall
           ? { x: a.fallingBall.x, y: a.fallingBall.y, ball: a.fallingBall.ball }
           : null,
         catapultBall,
       }
 
-      render(ctx, renderState, craneAnim)
+      render(ctx, renderState, craneAnim, dissolveAnim)
       rafRef.current = requestAnimationFrame(tick)
     }
 
@@ -513,7 +660,25 @@ export default function GameCanvas({
       running = false
       cancelAnimationFrame(rafRef.current)
     }
-  }, [isAnimatingCatapult])
+  }, [isAnimatingCatapult, isAnimatingDissolve])
+
+  // Tab-visibility skip: if the tab is hidden mid-dissolve, snap to the final
+  // state immediately (balls already removed in logic) — no stuck animation.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (!document.hidden) return
+      const a = animRef.current
+      if (a.dissolveSeq === null && a.dissolveVisual === null) return
+      const finishSeq = a.dissolveFinishSeq ?? a.dissolveSeq
+      a.dissolveGroups = []
+      a.dissolveVisual = null
+      a.dissolveBallIds = new Set()
+      a.dissolveFinishSeq = null
+      if (finishSeq !== null) onConsumeMatchRef.current(finishSeq)
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
 
   // Keyboard input
   useEffect(() => {

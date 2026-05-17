@@ -24,7 +24,165 @@ export function slotAnchor(
   return { x: end.x, y: end.y - BALL_RADIUS - len * BALL_SPACING }
 }
 
+// Per-ball dissolve state passed from GameCanvas. `phase` maps to the
+// 5 transporter phases (0 = highlight pause … 4 = particle fade-out);
+// `t` is 0..1 progress within that phase. `frame` is a monotonic frame
+// counter used for deterministic stripe flicker (no Math.random in render).
+export interface BallDissolve {
+  phase: 0 | 1 | 2 | 3 | 4
+  t: number
+  frame: number
+}
+export type DissolveAnim = Map<string, BallDissolve>
+
+const BEAM_STRIPES = 12
+
+// Deterministic pseudo-random in [0,1) from integer inputs — keeps the
+// transporter shimmer flickering without Math.random() in the render loop
+// (renderer must stay pure for identical output given identical state).
+function hashNoise(a: number, b: number): number {
+  let h = (a * 374761393 + b * 668265263) | 0
+  h = (h ^ (h >>> 13)) * 1274126177
+  h = h ^ (h >>> 16)
+  return ((h >>> 0) % 1000) / 1000
+}
+
+// Draws the Star Trek transporter beam over a ball at (x,y).
+// Phase 0: pulsing bright outline. Phase 1: glow expands toward white.
+// Phase 2: vertical shimmer stripes. Phase 3: top-down dissolve sweep
+// (ball already alpha-faded by the caller). Phase 4: residual particles fade.
+function drawBeamEffect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  glow: string,
+  d: BallDissolve,
+) {
+  const { phase, t, frame } = d
+  ctx.save()
+
+  if (phase === 0) {
+    // Pulsing bright outline — throbs ~3x over the 0.5s pause.
+    const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 6)
+    ctx.strokeStyle = `rgba(255,255,255,${0.55 + 0.4 * pulse})`
+    ctx.shadowColor = 'rgba(255,240,180,0.9)'
+    ctx.shadowBlur = 10 + 14 * pulse
+    ctx.lineWidth = 2 + 2 * pulse
+    ctx.beginPath()
+    ctx.arc(x, y, BALL_RADIUS + 3, 0, Math.PI * 2)
+    ctx.stroke()
+  } else if (phase === 1) {
+    // Glow expands and brightens toward white.
+    const r = BALL_RADIUS + 2 + t * 14
+    const grad = ctx.createRadialGradient(x, y, BALL_RADIUS * 0.4, x, y, r)
+    grad.addColorStop(0, `rgba(255,255,255,${0.4 + 0.5 * t})`)
+    grad.addColorStop(0.6, `rgba(255,255,255,${0.25 * t})`)
+    grad.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = grad
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  if (phase >= 2) {
+    // Vertical shimmer stripes — flicker at ~15fps via frame quantisation.
+    const flickerFrame = Math.floor(frame / 4)
+    const top = y - BALL_RADIUS
+    const fullH = BALL_RADIUS * 2
+    // Phase 3 sweeps a dissolve front downward; particles above it are gone.
+    const dissolveY = phase === 3 ? top + fullH * t : (phase >= 4 ? top + fullH : top)
+    const whiteMix = phase === 2 ? Math.min(1, t) : 1
+    const groupFade = phase === 4 ? 1 - t : 1
+
+    for (let s = 0; s < BEAM_STRIPES; s++) {
+      const sx = x - BALL_RADIUS + ((s + 0.5) / BEAM_STRIPES) * (BALL_RADIUS * 2)
+      const dx = (sx - x) / BALL_RADIUS
+      if (dx * dx >= 1) continue
+      // Stripe spans the chord of the circle at this x.
+      const chord = Math.sqrt(1 - dx * dx) * BALL_RADIUS
+      const n = hashNoise(s * 31 + Math.round(x), flickerFrame + s)
+      const n2 = hashNoise(s * 17 + flickerFrame, Math.round(y))
+      const stripeTop = Math.max(dissolveY, y - chord)
+      const stripeBot = y + chord
+      if (stripeBot <= stripeTop) continue
+      const flicker = 0.35 + 0.65 * n
+      const alpha = flicker * groupFade * (phase === 2 ? 0.55 + 0.45 * t : 1)
+
+      // Core color lerps from the ball's glow toward white as the beam
+      // intensifies (whiteMix 0→1 across phase 2, pinned at 1 afterwards).
+      const [gr, gg, gb] = glowComponents(glow)
+      const cr = Math.round(gr + (255 - gr) * whiteMix)
+      const cg = Math.round(gg + (255 - gg) * whiteMix)
+      const cb = Math.round(gb + (255 - gb) * whiteMix)
+
+      const grad = ctx.createLinearGradient(sx, stripeTop, sx, stripeBot)
+      grad.addColorStop(0, 'rgba(255,255,255,0)')
+      grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},${alpha})`)
+      grad.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = grad
+      ctx.shadowColor = 'rgba(180,220,255,0.8)'
+      ctx.shadowBlur = 6
+      const sw = 1.5 + n2 * 1.5
+      ctx.fillRect(sx - sw / 2, stripeTop, sw, stripeBot - stripeTop)
+    }
+  }
+
+  ctx.restore()
+}
+
+// Parses a glow color (hex `#rrggbb` or `rgb(r,g,b)`/`rgba(...)`) into its
+// RGB components. Falls back to a pale cyan if the format is unrecognised.
+function glowComponents(glow: string): [number, number, number] {
+  if (glow.startsWith('#')) {
+    const num = parseInt(glow.slice(1), 16)
+    return [num >> 16, (num >> 8) & 0xff, num & 0xff]
+  }
+  const m = glow.match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+  if (m) return [+m[1], +m[2], +m[3]]
+  return [200, 220, 255]
+}
+
 function drawBall(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+  glow: string,
+  weight: number,
+  variant: Variant,
+  alpha = 1,
+  dangerLevel = 0,
+  dissolve?: BallDissolve,
+) {
+  // Transporter beam: phases 0-2 keep the ball fully visible (effect drawn
+  // on top); phase 3 sweeps a top-down clip that erases the ball geometry;
+  // phase 4 the ball is gone — only residual particles remain.
+  if (dissolve) {
+    if (dissolve.phase === 4) {
+      drawBeamEffect(ctx, x, y, glow, dissolve)
+      return
+    }
+    if (dissolve.phase === 3) {
+      // Clip the ball to the not-yet-dissolved bottom portion.
+      ctx.save()
+      const top = y - BALL_RADIUS + BALL_RADIUS * 2 * dissolve.t
+      ctx.beginPath()
+      ctx.rect(x - BALL_RADIUS - 4, top, BALL_RADIUS * 2 + 8, BALL_RADIUS * 2 + 4)
+      ctx.clip()
+      drawBallBody(ctx, x, y, color, glow, weight, variant, alpha, 0)
+      ctx.restore()
+      drawBeamEffect(ctx, x, y, glow, dissolve)
+      return
+    }
+    // Phases 0-2: normal ball + beam overlay.
+    drawBallBody(ctx, x, y, color, glow, weight, variant, alpha, dangerLevel)
+    drawBeamEffect(ctx, x, y, glow, dissolve)
+    return
+  }
+  drawBallBody(ctx, x, y, color, glow, weight, variant, alpha, dangerLevel)
+}
+
+function drawBallBody(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -463,6 +621,7 @@ export function render(
   ctx: CanvasRenderingContext2D,
   state: GameState,
   craneAnim?: CraneAnim,
+  dissolveAnim?: DissolveAnim,
 ) {
   drawBackground(ctx)
   drawCraneRail(ctx)
@@ -479,9 +638,11 @@ export function render(
     const leftDanger = sw.left.length >= 7 ? 2 : sw.left.length >= 6 ? 1 : 0
     for (let j = 0; j < sw.left.length; j++) {
       const b = sw.left[j]
+      const dis = dissolveAnim?.get(b.id)
       drawBall(
         ctx, lEnd.x, lEnd.y - BALL_RADIUS - j * BALL_SPACING,
-        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant, 1, leftDanger,
+        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
+        1, dis ? 0 : leftDanger, dis,
       )
     }
 
@@ -490,9 +651,11 @@ export function render(
     const rightDanger = sw.right.length >= 7 ? 2 : sw.right.length >= 6 ? 1 : 0
     for (let j = 0; j < sw.right.length; j++) {
       const b = sw.right[j]
+      const dis = dissolveAnim?.get(b.id)
       drawBall(
         ctx, rEnd.x, rEnd.y - BALL_RADIUS - j * BALL_SPACING,
-        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant, 1, rightDanger,
+        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
+        1, dis ? 0 : rightDanger, dis,
       )
     }
   }

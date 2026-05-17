@@ -1,4 +1,11 @@
-import type { Ball, CatapultEvent, GameState, SeesawState, Variant } from './types'
+import type {
+  Ball,
+  CatapultEvent,
+  GameState,
+  MatchGroup,
+  SeesawState,
+  Variant,
+} from './types'
 import {
   NUM_SEESAWS,
   MAX_STACK,
@@ -56,6 +63,7 @@ export function createInitialState(): GameState {
     hoverSide: null,
     cranePositionIndex: 0, // start over seesaw 0, left side
     pendingCatapult: null,
+    pendingMatch: null,
   }
 }
 
@@ -295,6 +303,15 @@ function removeAndRecalc(seesaws: SeesawState[], toRemove: Set<string>): SeesawS
   })
 }
 
+// Deep copy so a snapshot can be frozen against later cascade mutations.
+function cloneSeesaws(seesaws: SeesawState[]): SeesawState[] {
+  return seesaws.map(sw => ({
+    ...sw,
+    left: sw.left.map(b => ({ ...b })),
+    right: sw.right.map(b => ({ ...b })),
+  }))
+}
+
 function isGameOver(seesaws: SeesawState[]): boolean {
   return seesaws.some(sw => sw.left.length >= MAX_STACK || sw.right.length >= MAX_STACK)
 }
@@ -326,6 +343,8 @@ export interface DropResult {
   state: GameState
   catapultEvents: CatapultEvent[]
   preCatapultSeesaws: SeesawState[]
+  // One MatchGroup per cascade round (ordered). Empty when nothing matched.
+  matchGroups: MatchGroup[]
 }
 
 export function dropBall(
@@ -334,13 +353,23 @@ export function dropBall(
   side: 'left' | 'right',
 ): DropResult {
   if (state.phase === 'gameover') {
-    return { state, catapultEvents: [], preCatapultSeesaws: state.seesaws }
+    return {
+      state,
+      catapultEvents: [],
+      preCatapultSeesaws: state.seesaws,
+      matchGroups: [],
+    }
   }
 
   const sw = state.seesaws[seesawIndex]
   const targetStack = side === 'left' ? sw.left : sw.right
   if (targetStack.length >= MAX_STACK) {
-    return { state, catapultEvents: [], preCatapultSeesaws: state.seesaws }
+    return {
+      state,
+      catapultEvents: [],
+      preCatapultSeesaws: state.seesaws,
+      matchGroups: [],
+    }
   }
 
   const ball = state.nextBall
@@ -356,11 +385,18 @@ export function dropBall(
   )
   let seesaws = catapultResult.seesaws
 
-  // Cascade matches
+  // Cascade matches. Each round records a MatchGroup: the board snapshot
+  // *before* the removal plus the ball IDs that vanish, so the animation
+  // layer can replay the dissolve while the logic state is already final.
   let totalRemoved = 0
+  const matchGroups: MatchGroup[] = []
   let toRemove = findMatches(seesaws)
   while (toRemove.size > 0) {
     totalRemoved += toRemove.size
+    matchGroups.push({
+      ballIds: [...toRemove],
+      seesaws: cloneSeesaws(seesaws),
+    })
     seesaws = removeAndRecalc(seesaws, toRemove)
     toRemove = findMatches(seesaws)
   }
@@ -379,5 +415,6 @@ export function dropBall(
     },
     catapultEvents: catapultResult.events,
     preCatapultSeesaws,
+    matchGroups,
   }
 }

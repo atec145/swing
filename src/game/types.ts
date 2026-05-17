@@ -46,6 +46,15 @@ export interface CatapultEvent {
   diff: number     // weight difference — drives flight distance + arc height
 }
 
+// One cascade round of a match clear. The animation layer beams these balls
+// out together; the logic layer has already removed them and updated the
+// score. `seesaws` is the board snapshot *before* this group was removed so
+// the renderer can keep drawing the doomed balls during the dissolve.
+export interface MatchGroup {
+  ballIds: string[]
+  seesaws: SeesawState[]
+}
+
 export type GamePhase = 'waiting' | 'gameover'
 
 export interface GameState {
@@ -66,5 +75,14 @@ export interface GameState {
     seq: number
     events: CatapultEvent[]
     preCatapultSeesaws: SeesawState[]
+  } | null
+  // Side-channel for the dissolve animation. Each entry in `groups` is one
+  // cascade round (first match first); the canvas beams each group out fully
+  // before starting the next. The logic has already removed the balls and
+  // updated the score; this is purely a visual recording. null when nothing
+  // is pending. Shares `seq` with its originating drop.
+  pendingMatch: {
+    seq: number
+    groups: MatchGroup[]
   } | null
 }
