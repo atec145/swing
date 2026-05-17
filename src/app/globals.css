@@ -83,3 +83,191 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ===== Animated game background ===== */
+
+.nebula-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  will-change: transform;
+  z-index: 0;
+}
+.nebula-1 {
+  width: 700px; height: 450px;
+  background: radial-gradient(ellipse, rgba(35,70,200,0.28) 0%, transparent 70%);
+  top: -8%; left: -18%;
+  animation: nebula-drift-1 20s ease-in-out infinite;
+}
+.nebula-2 {
+  width: 550px; height: 550px;
+  background: radial-gradient(ellipse, rgba(100,30,180,0.22) 0%, transparent 70%);
+  bottom: -12%; right: -14%;
+  animation: nebula-drift-2 25s ease-in-out infinite;
+}
+.nebula-3 {
+  width: 400px; height: 380px;
+  background: radial-gradient(ellipse, rgba(20,160,190,0.2) 0%, transparent 70%);
+  top: 40%; right: 3%;
+  animation: nebula-drift-3 17s ease-in-out infinite;
+}
+.nebula-4 {
+  width: 320px; height: 280px;
+  background: radial-gradient(ellipse, rgba(30,140,70,0.16) 0%, transparent 70%);
+  bottom: 18%; left: 4%;
+  animation: nebula-drift-4 22s ease-in-out infinite;
+}
+@keyframes nebula-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(70px, 50px) scale(1.09); }
+  66%       { transform: translate(-35px, 75px) scale(0.94); }
+}
+@keyframes nebula-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%       { transform: translate(-90px, -60px) scale(1.12); }
+}
+@keyframes nebula-drift-3 {
+  0%, 100% { transform: translate(0, 0); }
+  50%       { transform: translate(-50px, 80px); }
+}
+@keyframes nebula-drift-4 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40%       { transform: translate(55px, -45px) scale(1.06); }
+  80%       { transform: translate(-25px, 35px) scale(0.91); }
+}
+
+/* Aurora band at the top */
+.aurora {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 220px;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+.aurora::before,
+.aurora::after {
+  content: '';
+  position: absolute;
+  top: -60px;
+  border-radius: 50%;
+  filter: blur(55px);
+  animation: aurora-wave 8s ease-in-out infinite alternate;
+}
+.aurora::before {
+  width: 60%; height: 180px;
+  left: -5%;
+  background: linear-gradient(90deg, rgba(30,80,200,0.18), rgba(60,200,214,0.22), rgba(80,30,180,0.14));
+}
+.aurora::after {
+  width: 70%; height: 160px;
+  right: -10%;
+  background: linear-gradient(90deg, rgba(80,30,180,0.12), rgba(60,200,180,0.2), rgba(30,100,220,0.16));
+  animation-delay: -3s;
+  animation-duration: 11s;
+}
+@keyframes aurora-wave {
+  0%   { transform: translateX(0) scaleY(1); opacity: 0.8; }
+  50%  { transform: translateX(30px) scaleY(1.15); opacity: 1; }
+  100% { transform: translateX(-20px) scaleY(0.9); opacity: 0.7; }
+}
+
+/* Particle layer */
+.particle-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+.particle {
+  position: absolute;
+  bottom: -4px;
+  border-radius: 50%;
+  opacity: 0;
+  animation: particle-float linear infinite;
+  box-shadow: 0 0 4px currentColor;
+}
+@keyframes particle-float {
+  0%   { transform: translateY(0) translateX(0); opacity: 0; }
+  8%   { opacity: 1; }
+  85%  { opacity: 0.7; }
+  100% { transform: translateY(-100vh) translateX(var(--px-drift, 0px)); opacity: 0; }
+}
+
+/* Scanline overlay — very subtle retro CRT feel */
+.scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0,0,0,0.04) 3px,
+    rgba(0,0,0,0.04) 4px
+  );
+}
+
+/* Game canvas wrapper with pulsing glow */
+.game-canvas-wrapper {
+  position: relative;
+  border-radius: 12px;
+  animation: canvas-glow-pulse 5s ease-in-out infinite;
+}
+@keyframes canvas-glow-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(60,201,214,0.18),
+      0 0 28px rgba(50,110,220,0.32),
+      0 0 70px rgba(35,70,180,0.18),
+      0 24px 64px rgba(0,0,0,0.7);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(60,201,214,0.32),
+      0 0 48px rgba(50,110,220,0.52),
+      0 0 110px rgba(35,70,200,0.28),
+      0 24px 64px rgba(0,0,0,0.7);
+  }
+}
+
+/* Sci-fi corner brackets */
+.corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+  z-index: 10;
+  animation: corner-flicker 6s ease-in-out infinite;
+}
+.corner-tl { top: -2px; left: -2px;  border-top: 2px solid rgba(60,201,214,0.75); border-left: 2px solid rgba(60,201,214,0.75);  border-radius: 12px 0 0 0; }
+.corner-tr { top: -2px; right: -2px; border-top: 2px solid rgba(60,201,214,0.75); border-right: 2px solid rgba(60,201,214,0.75); border-radius: 0 12px 0 0; }
+.corner-bl { bottom: -2px; left: -2px;  border-bottom: 2px solid rgba(60,201,214,0.75); border-left: 2px solid rgba(60,201,214,0.75);  border-radius: 0 0 0 12px; }
+.corner-br { bottom: -2px; right: -2px; border-bottom: 2px solid rgba(60,201,214,0.75); border-right: 2px solid rgba(60,201,214,0.75); border-radius: 0 0 12px 0; }
+@keyframes corner-flicker {
+  0%, 95%, 100% { opacity: 1; }
+  96%            { opacity: 0.35; }
+  97%            { opacity: 1; }
+  98%            { opacity: 0.55; }
+  99%            { opacity: 1; }
+}
+
+/* Title glow */
+.game-title {
+  font-size: 1.5rem;
+  font-weight: bold;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgb(203,213,225);
+  margin-bottom: 1rem;
+  animation: title-glow 4s ease-in-out infinite;
+  position: relative;
+  z-index: 2;
+}
+@keyframes title-glow {
+  0%, 100% { text-shadow: 0 0 18px rgba(60,201,214,0.45), 0 0 38px rgba(50,110,220,0.2); }
+  50%       { text-shadow: 0 0 28px rgba(60,201,214,0.75), 0 0 60px rgba(50,110,220,0.38); }
+}
