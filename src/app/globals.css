@@ -216,6 +216,7 @@
   position: relative;
   border-radius: 12px;
   animation: canvas-glow-pulse 5s ease-in-out infinite;
+  z-index: 2;
 }
 @keyframes canvas-glow-pulse {
   0%, 100% {

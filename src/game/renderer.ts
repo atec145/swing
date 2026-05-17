@@ -90,9 +90,9 @@ function drawBeamEffect(
     const top = y - BALL_RADIUS
     const fullH = BALL_RADIUS * 2
     // Phase 3 sweeps a dissolve front downward; particles above it are gone.
-    const dissolveY = phase === 3 ? top + fullH * t : (phase >= 4 ? top + fullH : top)
+    const dissolveY = phase >= 4 ? top + fullH : top
     const whiteMix = phase === 2 ? Math.min(1, t) : 1
-    const groupFade = phase === 4 ? 1 - t : 1
+    const groupFade = phase === 3 ? 1 - t : phase >= 4 ? 0 : 1
 
     for (let s = 0; s < BEAM_STRIPES; s++) {
       const sx = x - BALL_RADIUS + ((s + 0.5) / BEAM_STRIPES) * (BALL_RADIUS * 2)
@@ -163,14 +163,7 @@ function drawBall(
       return
     }
     if (dissolve.phase === 3) {
-      // Clip the ball to the not-yet-dissolved bottom portion.
-      ctx.save()
-      const top = y - BALL_RADIUS + BALL_RADIUS * 2 * dissolve.t
-      ctx.beginPath()
-      ctx.rect(x - BALL_RADIUS - 4, top, BALL_RADIUS * 2 + 8, BALL_RADIUS * 2 + 4)
-      ctx.clip()
-      drawBallBody(ctx, x, y, color, glow, weight, variant, alpha, 0)
-      ctx.restore()
+      // Ball is instantly gone — only residual particles fade out.
       drawBeamEffect(ctx, x, y, glow, dissolve)
       return
     }
