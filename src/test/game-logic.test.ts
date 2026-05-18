@@ -305,40 +305,60 @@ describe('variant-aware matching', () => {
 })
 
 describe('difficulty tiers', () => {
-  it('tierForScore returns the lowest tier at score 0', () => {
+  it('tierForScore returns the 5-color, no-half base tier at score 0', () => {
     const t = tierForScore(0)
     expect(t.activeColors).toBe(5)
-    expect(t.variants).toEqual(['full'])
+    expect(t.activeHalfColors).toBe(0)
   })
 
-  it('tierForScore returns 6-color tier at score 1000', () => {
-    const t = tierForScore(1000)
+  it('unlocks the 6th full color before the old 1000-point threshold', () => {
+    const t = tierForScore(400)
     expect(t.activeColors).toBe(6)
-    expect(t.variants).toEqual(['full'])
+    expect(t.activeHalfColors).toBe(0)
+    // and the 6th color is genuinely active earlier than score 1000
+    expect(tierForScore(999).activeColors).toBe(6)
   })
 
-  it('tierForScore returns 7-color tier at score 3000', () => {
-    const t = tierForScore(3000)
-    expect(t.activeColors).toBe(7)
-    expect(t.variants).toEqual(['full'])
+  it('unlocks the 7th full color at 1000 and the 8th at 1800', () => {
+    expect(tierForScore(1000).activeColors).toBe(7)
+    expect(tierForScore(1000).activeHalfColors).toBe(0)
+    expect(tierForScore(1800).activeColors).toBe(8)
+    expect(tierForScore(1800).activeHalfColors).toBe(0)
   })
 
-  it('tierForScore opens the half-ball gate at score 6000', () => {
-    const t = tierForScore(6000)
-    expect(t.activeColors).toBe(7)
-    expect(t.variants).toEqual(['full', 'half'])
-  })
-
-  it('tierForScore returns final 8-color full+half tier at score 10000', () => {
-    const t = tierForScore(10000)
+  it('introduces the first half-ball color at 2800', () => {
+    const t = tierForScore(2800)
     expect(t.activeColors).toBe(8)
-    expect(t.variants).toEqual(['full', 'half'])
+    expect(t.activeHalfColors).toBe(1)
   })
 
-  it('tier transitions are strictly one-way and correctly ordered', () => {
+  it('reaches the peak tier (8 full + 8 half) only at high score', () => {
+    expect(tierForScore(15399).activeHalfColors).toBeLessThan(8)
+    const t = tierForScore(15400)
+    expect(t.activeColors).toBe(8)
+    expect(t.activeHalfColors).toBe(8)
+  })
+
+  it('tier transitions are strictly increasing and monotonic', () => {
     for (let i = 1; i < DIFFICULTY_TIERS.length; i++) {
       expect(DIFFICULTY_TIERS[i].minScore).toBeGreaterThan(DIFFICULTY_TIERS[i - 1].minScore)
       expect(DIFFICULTY_TIERS[i].activeColors).toBeGreaterThanOrEqual(DIFFICULTY_TIERS[i - 1].activeColors)
+      expect(DIFFICULTY_TIERS[i].activeHalfColors).toBeGreaterThanOrEqual(DIFFICULTY_TIERS[i - 1].activeHalfColors)
+    }
+  })
+
+  it('activeHalfColors never exceeds activeColors for any tier', () => {
+    for (const tier of DIFFICULTY_TIERS) {
+      expect(tier.activeHalfColors).toBeLessThanOrEqual(tier.activeColors)
+    }
+  })
+
+  it('at most one new color (full or half) unlocks per threshold', () => {
+    for (let i = 1; i < DIFFICULTY_TIERS.length; i++) {
+      const delta =
+        (DIFFICULTY_TIERS[i].activeColors - DIFFICULTY_TIERS[i - 1].activeColors) +
+        (DIFFICULTY_TIERS[i].activeHalfColors - DIFFICULTY_TIERS[i - 1].activeHalfColors)
+      expect(delta).toBe(1)
     }
   })
 })
@@ -353,19 +373,40 @@ describe('createBall (score-driven generation)', () => {
     }
   })
 
-  it('only emits full variant below score 6000', () => {
-    for (let i = 0; i < 100; i++) {
-      expect(createBall(5999).variant).toBe('full')
+  it('only emits full variant below the first half-ball threshold (2800)', () => {
+    for (let i = 0; i < 200; i++) {
+      expect(createBall(2799).variant).toBe('full')
     }
   })
 
-  it('emits both full and half variants at score 6000+', () => {
+  it('emits both full and half variants once half-balls are unlocked', () => {
+    // At score 2800 only COLORS[0] (green) is half-eligible, so sample enough
+    // to observe both full and half outcomes.
     const variants = new Set<string>()
-    for (let i = 0; i < 200; i++) {
-      variants.add(createBall(6000).variant)
+    for (let i = 0; i < 500; i++) {
+      variants.add(createBall(2800).variant)
     }
     expect(variants.has('full')).toBe(true)
     expect(variants.has('half')).toBe(true)
+  })
+
+  it('only the first activeHalfColors colors may appear as half-balls', () => {
+    // At score 2800, activeHalfColors === 1 → only COLORS[0] can be half.
+    for (let i = 0; i < 800; i++) {
+      const b = createBall(2800)
+      if (b.variant === 'half') {
+        expect(b.color).toBe(COLORS[0])
+      }
+    }
+  })
+
+  it('all 8 colors can appear as half-balls at the peak tier', () => {
+    const halfColors = new Set<string>()
+    for (let i = 0; i < 4000; i++) {
+      const b = createBall(15400)
+      if (b.variant === 'half') halfColors.add(b.color)
+    }
+    expect(halfColors.size).toBe(8)
   })
 
   it('can emit weights up to 10', () => {

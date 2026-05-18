@@ -84,9 +84,21 @@ export const WEIGHT_POOL = [
 // ---------------------------------------------------------------------------
 // Progressive difficulty tiers
 //
-// Each tier specifies how many of the unlock-ordered COLORS are active and
-// whether the half-ball variant is in the pool. Score is monotonically
-// increasing, so transitions are strictly one-way.
+// Each tier specifies how many of the unlock-ordered COLORS are active as
+// full balls (`activeColors`) and, independently, how many of those same
+// unlock-ordered colors may also appear as half-ball variants
+// (`activeHalfColors`). A tier with activeHalfColors === 0 generates no
+// half-balls at all (same as the original early game). activeHalfColors is
+// always <= activeColors and half-balls follow the SAME unlock order as
+// full balls (COLORS[0..activeHalfColors-1]).
+//
+// Score is monotonically increasing, so transitions are strictly one-way.
+// At most ONE new color (full OR half) unlocks per threshold, so the ramp
+// has no simultaneous unlocks and no large dead zones:
+//
+//   gaps: 400 600 800 1000 1200 1400 1600 1800 2000 2200 2400
+//   — gradual linear growth, not exponential. Peak (8 full + 8 half)
+//   is only reached at 15400.
 //
 // Reached when score >= minScore. Pick the highest tier whose minScore <=
 // current score.
@@ -94,16 +106,21 @@ export const WEIGHT_POOL = [
 
 export interface DifficultyTier {
   minScore: number
-  activeColors: number       // how many entries from COLORS are in play
-  variants: Variant[]        // ball variants in the generation pool
+  activeColors: number       // how many COLORS entries are in play as full balls
+  activeHalfColors: number   // how many COLORS entries may also appear as half balls
 }
 
-import type { Variant } from './types'
-
 export const DIFFICULTY_TIERS: DifficultyTier[] = [
-  { minScore: 0,     activeColors: 5, variants: ['full'] },
-  { minScore: 1000,  activeColors: 6, variants: ['full'] },
-  { minScore: 3000,  activeColors: 7, variants: ['full'] },
-  { minScore: 6000,  activeColors: 7, variants: ['full', 'half'] },
-  { minScore: 10000, activeColors: 8, variants: ['full', 'half'] },
+  { minScore: 0,     activeColors: 5, activeHalfColors: 0 }, // base — original-game floor
+  { minScore: 400,   activeColors: 6, activeHalfColors: 0 }, // +full orange
+  { minScore: 1000,  activeColors: 7, activeHalfColors: 0 }, // +full yellow
+  { minScore: 1800,  activeColors: 8, activeHalfColors: 0 }, // +full cyan (all 8 full)
+  { minScore: 2800,  activeColors: 8, activeHalfColors: 1 }, // +half green
+  { minScore: 4000,  activeColors: 8, activeHalfColors: 2 }, // +half blue
+  { minScore: 5400,  activeColors: 8, activeHalfColors: 3 }, // +half red
+  { minScore: 7000,  activeColors: 8, activeHalfColors: 4 }, // +half navy
+  { minScore: 8800,  activeColors: 8, activeHalfColors: 5 }, // +half gray
+  { minScore: 10800, activeColors: 8, activeHalfColors: 6 }, // +half orange
+  { minScore: 13000, activeColors: 8, activeHalfColors: 7 }, // +half yellow
+  { minScore: 15400, activeColors: 8, activeHalfColors: 8 }, // +half cyan (peak)
 ]

@@ -30,10 +30,19 @@ export function tierForScore(score: number) {
 
 // Generates a random ball using the active tier derived from current score.
 // `score` defaults to 0 — useful for tests and the initial state.
+//
+// Color is picked uniformly from the first `activeColors` unlock-ordered
+// COLORS. The ball may be a half-ball only if its color index falls inside
+// the first `activeHalfColors` entries (same unlock order as full balls);
+// when eligible it is a 50/50 full/half coin flip. Colors outside the
+// half-ball window are always full.
 export function createBall(score = 0, override?: Partial<Ball>): Ball {
   const tier = tierForScore(score)
-  const color = COLORS[Math.floor(Math.random() * tier.activeColors)]
-  const variant: Variant = tier.variants[Math.floor(Math.random() * tier.variants.length)]
+  const colorIndex = Math.floor(Math.random() * tier.activeColors)
+  const color = COLORS[colorIndex]
+  const halfEligible = colorIndex < tier.activeHalfColors
+  const variant: Variant =
+    halfEligible && Math.random() < 0.5 ? 'half' : 'full'
   const weight = WEIGHT_POOL[Math.floor(Math.random() * WEIGHT_POOL.length)]
   return { id: `b${++ballIdCounter}`, color, variant, weight, ...override }
 }
