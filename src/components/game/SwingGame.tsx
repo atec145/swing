@@ -29,7 +29,7 @@ export default function SwingGame() {
       <div className="border-t border-slate-800 bg-gray-950/80">
         <GameUI
           score={gameState.score}
-          nextBall={gameState.nextBall}
+          nextBall={gameState.queuedBall}
           phase={gameState.phase}
           onRestart={handleRestart}
         />

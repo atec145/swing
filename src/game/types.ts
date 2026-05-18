@@ -60,7 +60,8 @@ export type GamePhase = 'waiting' | 'gameover'
 export interface GameState {
   seesaws: SeesawState[]
   score: number
-  nextBall: Ball
+  nextBall: Ball     // ball currently held in the crane
+  queuedBall: Ball   // ball shown in the preview ("next")
   phase: GamePhase
   hoverSeesaw: number | null
   hoverSide: 'left' | 'right' | null
