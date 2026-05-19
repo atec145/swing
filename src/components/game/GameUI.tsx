@@ -3,6 +3,7 @@
 import type { Ball } from '@/game/types'
 import { COLOR_HEX } from '@/game/constants'
 import { Button } from '@/components/ui/button'
+import { Trophy } from 'lucide-react'
 
 interface Props {
   score: number
@@ -17,7 +18,16 @@ export default function GameUI({ score, nextBall, phase, onRestart, onShowHighsc
     <div className="flex items-center justify-between px-2 py-3 select-none">
       {/* Score */}
       <div className="text-left">
-        <p className="text-xs text-slate-500 uppercase tracking-widest">Score</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-xs text-slate-500 uppercase tracking-widest">Score</p>
+          <button
+            onClick={onShowHighscores}
+            aria-label="Highscores anzeigen"
+            className="text-slate-600 hover:text-slate-400 transition-colors"
+          >
+            <Trophy size={12} />
+          </button>
+        </div>
         <p className="text-3xl font-bold text-white tabular-nums">{score.toLocaleString()}</p>
       </div>
 
@@ -36,25 +46,15 @@ export default function GameUI({ score, nextBall, phase, onRestart, onShowHighsc
           <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">&darr;</kbd>{' '}
           drop ball
         </p>
-        <div className="flex gap-2 mt-1 justify-end">
+        {phase === 'gameover' && (
           <Button
-            onClick={onShowHighscores}
+            onClick={onRestart}
             size="sm"
-            variant="outline"
-            className="border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
+            className="mt-1 bg-indigo-600 hover:bg-indigo-500 text-white"
           >
-            Highscores
+            Restart
           </Button>
-          {phase === 'gameover' && (
-            <Button
-              onClick={onRestart}
-              size="sm"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white"
-            >
-              Restart
-            </Button>
-          )}
-        </div>
+        )}
       </div>
     </div>
   )
