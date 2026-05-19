@@ -1,14 +1,34 @@
-// Supabase Client Setup
-// Uncomment this file when you're ready to use Supabase
+// Server-side Supabase client.
+//
+// The shared Supabase project (with sarah-todo) is reached through Next.js API
+// routes; the browser never talks to Supabase directly, so the service-role
+// key stays on the server.
+//
+// NEVER import this module from a client component.
 
-/*
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+let _client: SupabaseClient | null = null
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
-*/
+/**
+ * Lazily create a server-side Supabase client using the service role key.
+ * Throws if the required environment variables are missing.
+ */
+export function getServerSupabase(): SupabaseClient {
+  if (_client) return _client
 
-// For now, export a placeholder to avoid import errors
-export const supabase = null;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!url || !serviceKey) {
+    throw new Error(
+      'Supabase env vars missing: set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local',
+    )
+  }
+
+  _client = createClient(url, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+
+  return _client
+}
