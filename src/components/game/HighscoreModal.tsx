@@ -43,12 +43,13 @@ interface Props {
   score: number
   onClose: () => void
   onRestart: () => void
+  viewOnly?: boolean
 }
 
 // Allowed name chars (mirrors highscoreInsertSchema NAME_PATTERN).
 const NAME_PATTERN = /^[\p{L}\p{N} _-]+$/u
 
-export default function HighscoreModal({ open, score, onClose, onRestart }: Props) {
+export default function HighscoreModal({ open, score, onClose, onRestart, viewOnly = false }: Props) {
   const { highscores, loading, error, submitting, submitError, refetch, submit } =
     useHighscores()
 
@@ -71,13 +72,15 @@ export default function HighscoreModal({ open, score, onClose, onRestart }: Prop
   //  - score must be > 0
   //  - player hasn't already submitted or skipped
   //  - either the list has < TOP_N entries OR score beats the last entry
+  //  - never in view-only mode (no active game score to submit)
   const qualifies = useMemo(() => {
+    if (viewOnly) return false
     if (score <= 0) return false
     if (submittedRow || skipped) return false
     if (highscores.length < HIGHSCORE_TOP_N) return true
     const last = highscores[highscores.length - 1]
     return score > last.score
-  }, [score, highscores, submittedRow, skipped])
+  }, [viewOnly, score, highscores, submittedRow, skipped])
 
   // Validate name (client-side mirror of the Zod schema for instant feedback).
   const trimmed = name.trim()
@@ -107,7 +110,7 @@ export default function HighscoreModal({ open, score, onClose, onRestart }: Prop
       <DialogContent className="max-w-md sm:max-w-lg bg-slate-950 border-slate-800 text-slate-100">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-white">
-            Game Over
+            {viewOnly ? 'Highscores' : 'Game Over'}
           </DialogTitle>
           <DialogDescription className="text-slate-400">
             Globale Top {HIGHSCORE_TOP_N} — vergleiche dich mit allen Spielern.
@@ -118,7 +121,7 @@ export default function HighscoreModal({ open, score, onClose, onRestart }: Prop
           loading={loading}
           error={error}
           highscores={highscores}
-          ownScore={score}
+          ownScore={viewOnly ? null : score}
           ownEntryId={submittedRow?.id ?? null}
           ownName={submittedRow?.name ?? null}
           onRetry={() => void refetch()}
@@ -178,15 +181,24 @@ export default function HighscoreModal({ open, score, onClose, onRestart }: Prop
         )}
 
         <DialogFooter className="pt-2">
-          <Button
-            onClick={() => {
-              onRestart()
-              onClose()
-            }}
-            className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white"
-          >
-            Neues Spiel
-          </Button>
+          {viewOnly ? (
+            <Button
+              onClick={onClose}
+              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white"
+            >
+              Schließen
+            </Button>
+          ) : (
+            <Button
+              onClick={() => {
+                onRestart()
+                onClose()
+              }}
+              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white"
+            >
+              Neues Spiel
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -201,7 +213,7 @@ interface BodyProps {
   loading: boolean
   error: string | null
   highscores: HighscoreRow[]
-  ownScore: number
+  ownScore: number | null
   ownEntryId: string | null
   ownName: string | null
   onRetry: () => void
@@ -244,9 +256,11 @@ function HighscoreBody({
             Erneut versuchen
           </Button>
         </div>
-        <p className="text-xs text-slate-500 pt-2">
-          Dein Ergebnis: <span className="font-semibold text-slate-300">{ownScore.toLocaleString('de-DE')}</span>
-        </p>
+        {ownScore !== null && (
+          <p className="text-xs text-slate-500 pt-2">
+            Dein Ergebnis: <span className="font-semibold text-slate-300">{ownScore.toLocaleString('de-DE')}</span>
+          </p>
+        )}
       </div>
     )
   }
@@ -302,21 +316,23 @@ function HighscoreBody({
             )
           })}
 
-          {/* Always-visible own-score row (11th line). */}
-          <TableRow className="border-t-2 border-indigo-700 bg-indigo-900/50 hover:bg-indigo-900/60">
-            <TableCell className="font-mono text-indigo-300 tabular-nums">
-              Du
-            </TableCell>
-            <TableCell className="font-semibold text-white break-all">
-              {ownName ?? 'Dein Ergebnis'}
-            </TableCell>
-            <TableCell className="text-right tabular-nums font-semibold text-white">
-              {ownScore.toLocaleString('de-DE')}
-            </TableCell>
-            <TableCell className="text-right text-indigo-300 text-xs hidden sm:table-cell">
-              Jetzt
-            </TableCell>
-          </TableRow>
+          {/* Always-visible own-score row (11th line) — hidden in view-only mode. */}
+          {ownScore !== null && (
+            <TableRow className="border-t-2 border-indigo-700 bg-indigo-900/50 hover:bg-indigo-900/60">
+              <TableCell className="font-mono text-indigo-300 tabular-nums">
+                Du
+              </TableCell>
+              <TableCell className="font-semibold text-white break-all">
+                {ownName ?? 'Dein Ergebnis'}
+              </TableCell>
+              <TableCell className="text-right tabular-nums font-semibold text-white">
+                {ownScore.toLocaleString('de-DE')}
+              </TableCell>
+              <TableCell className="text-right text-indigo-300 text-xs hidden sm:table-cell">
+                Jetzt
+              </TableCell>
+            </TableRow>
+          )}
         </TableBody>
       </Table>
     </div>

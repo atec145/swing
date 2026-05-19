@@ -9,9 +9,10 @@ interface Props {
   nextBall: Ball
   phase: 'waiting' | 'gameover'
   onRestart: () => void
+  onShowHighscores: () => void
 }
 
-export default function GameUI({ score, nextBall, phase, onRestart }: Props) {
+export default function GameUI({ score, nextBall, phase, onRestart, onShowHighscores }: Props) {
   return (
     <div className="flex items-center justify-between px-2 py-3 select-none">
       {/* Score */}
@@ -35,15 +36,25 @@ export default function GameUI({ score, nextBall, phase, onRestart }: Props) {
           <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">&darr;</kbd>{' '}
           drop ball
         </p>
-        {phase === 'gameover' && (
+        <div className="flex gap-2 mt-1 justify-end">
           <Button
-            onClick={onRestart}
+            onClick={onShowHighscores}
             size="sm"
-            className="mt-1 bg-indigo-600 hover:bg-indigo-500 text-white"
+            variant="outline"
+            className="border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
           >
-            Restart
+            Highscores
           </Button>
-        )}
+          {phase === 'gameover' && (
+            <Button
+              onClick={onRestart}
+              size="sm"
+              className="bg-indigo-600 hover:bg-indigo-500 text-white"
+            >
+              Restart
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )

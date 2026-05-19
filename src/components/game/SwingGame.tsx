@@ -21,14 +21,21 @@ export default function SwingGame() {
   // We use a separate state (rather than driving directly off `phase`) so the
   // player can dismiss the modal and still see the final board.
   const [showHighscores, setShowHighscores] = useState(false)
+  const [highscoresViewOnly, setHighscoresViewOnly] = useState(false)
 
   useEffect(() => {
     if (gameState.phase === 'gameover') {
+      setHighscoresViewOnly(false)
       setShowHighscores(true)
     } else {
       setShowHighscores(false)
     }
   }, [gameState.phase])
+
+  function handleShowHighscores() {
+    setHighscoresViewOnly(true)
+    setShowHighscores(true)
+  }
 
   return (
     <div className="w-full max-w-[900px] rounded-2xl overflow-hidden border border-slate-800 shadow-2xl shadow-black/60 bg-[#0D0F1A]">
@@ -47,6 +54,7 @@ export default function SwingGame() {
           nextBall={gameState.queuedBall}
           phase={gameState.phase}
           onRestart={handleRestart}
+          onShowHighscores={handleShowHighscores}
         />
       </div>
 
@@ -55,6 +63,7 @@ export default function SwingGame() {
         score={gameState.score}
         onClose={() => setShowHighscores(false)}
         onRestart={handleRestart}
+        viewOnly={highscoresViewOnly}
       />
     </div>
   )
