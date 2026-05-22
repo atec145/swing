@@ -40,7 +40,7 @@ export function tierForScore(score: number) {
 // per-roll probability. Below the threshold, sawblades never appear so early
 // gameplay stays focused on the core mechanic.
 const SAWBLADE_MIN_SCORE = 300
-const SAWBLADE_PROBABILITY = 0.05
+const SAWBLADE_PROBABILITY = 0.035
 
 export function createBall(score = 0, override?: Partial<Ball>): Ball {
   // Sawblade roll — always runs first so the dice are independent of color choice.
