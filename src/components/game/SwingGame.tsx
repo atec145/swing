@@ -14,6 +14,7 @@ export default function SwingGame() {
     handleCraneSet,
     handleConsumeCatapult,
     handleConsumeMatch,
+    handleConsumeSawblade,
     handleRestart,
   } = useGameState()
 
@@ -46,6 +47,7 @@ export default function SwingGame() {
         onCraneSetPosition={handleCraneSet}
         onConsumeCatapult={handleConsumeCatapult}
         onConsumeMatch={handleConsumeMatch}
+        onConsumeSawblade={handleConsumeSawblade}
         onRestart={handleRestart}
       />
       <div className="border-t border-slate-800 bg-gray-950/80">

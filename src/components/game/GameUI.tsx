@@ -61,6 +61,24 @@ export default function GameUI({ score, nextBall, phase, onRestart, onShowHighsc
 }
 
 function NextBallPreview({ ball }: { ball: Ball }) {
+  // Sawblade preview — small SVG icon hinting at the special ball.
+  if (ball.kind === 'sawblade') {
+    return (
+      <div
+        role="img"
+        aria-label="Next ball: sawblade (special)"
+        className="flex items-center justify-center rounded-full w-10 h-10 shadow-lg animate-spin"
+        style={{
+          background: 'radial-gradient(circle at 35% 35%, #F0F4FB, #5A6271)',
+          boxShadow: '0 0 14px 3px rgba(255,200,60,0.55)',
+          animationDuration: '1.4s',
+        }}
+      >
+        <SawbladeIcon />
+      </div>
+    )
+  }
+
   const hex = COLOR_HEX[ball.color]
   const ariaLabel = `Next ball: ${ball.variant} ${ball.color}, weight ${ball.weight}`
 
@@ -104,6 +122,30 @@ function NextBallPreview({ ball }: { ball: Ball }) {
         {ball.weight}
       </span>
     </div>
+  )
+}
+
+// Small SVG of a sawblade — 10 teeth, central arbor, gold-tinted edges.
+// Used in the next-ball preview when a sawblade is queued.
+function SawbladeIcon() {
+  const teeth = 10
+  const pts: string[] = []
+  for (let i = 0; i < teeth; i++) {
+    const a0 = (i / teeth) * Math.PI * 2
+    const a1 = ((i + 0.55) / teeth) * Math.PI * 2
+    const a2 = ((i + 0.85) / teeth) * Math.PI * 2
+    const aMid = (a0 + a1) / 2
+    // Inner radius 8, outer 14 (over a 32x32 viewBox centered at 16,16)
+    pts.push(`${16 + Math.cos(a0) * 8},${16 + Math.sin(a0) * 8}`)
+    pts.push(`${16 + Math.cos(aMid) * 14},${16 + Math.sin(aMid) * 14}`)
+    pts.push(`${16 + Math.cos(a2) * 8},${16 + Math.sin(a2) * 8}`)
+  }
+  return (
+    <svg viewBox="0 0 32 32" className="w-8 h-8" aria-hidden>
+      <polygon points={pts.join(' ')} fill="#E8C25A" stroke="#7A6020" strokeWidth="0.4" />
+      <circle cx="16" cy="16" r="7" fill="#C8CFDB" stroke="#3A4150" strokeWidth="0.6" />
+      <circle cx="16" cy="16" r="2.4" fill="#1A1F2C" />
+    </svg>
   )
 }
 

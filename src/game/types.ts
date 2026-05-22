@@ -13,11 +13,17 @@ export type Color =
 
 export type Variant = 'full' | 'half'
 
+// Ball category — most balls are 'normal' (standard match mechanics).
+// Special balls like 'sawblade' bypass weight physics and trigger custom effects.
+// The optional field keeps existing code working: missing/undefined == 'normal'.
+export type BallKind = 'normal' | 'sawblade'
+
 export interface Ball {
   id: string
   color: Color
   variant: Variant
   weight: number
+  kind?: BallKind
 }
 
 // Discrete 3-state tilt model. A seesaw is always in exactly one of these
@@ -85,5 +91,15 @@ export interface GameState {
   pendingMatch: {
     seq: number
     groups: MatchGroup[]
+  } | null
+  // Side-channel for the sawblade special-effect animation. Carries the
+  // affected seesaw + arm and the balls that were cleared (used for the
+  // colored splinter particles). null when there is nothing to animate.
+  // Shares `seq` with its originating drop.
+  pendingSawblade: {
+    seq: number
+    seesawIndex: number
+    side: 'left' | 'right'
+    clearedBalls: Ball[]
   } | null
 }

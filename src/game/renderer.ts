@@ -175,6 +175,160 @@ function drawBall(
   drawBallBody(ctx, x, y, color, glow, weight, variant, alpha, dangerLevel)
 }
 
+// Draws the rotating circular saw blade. Metallic grey body with 10 sharp
+// teeth around the rim, a small inner arbor hole, and a soft highlight for
+// volume. `rotation` is in radians — caller controls timing.
+export function drawSawblade(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  rotation: number,
+  alpha = 1,
+) {
+  const R = BALL_RADIUS
+  const teethCount = 10
+  const innerR = R * 0.78  // body radius (teeth extend beyond this)
+  const arborR = R * 0.18  // central mount hole
+
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.translate(x, y)
+  ctx.rotate(rotation)
+
+  // Glow halo so the sawblade reads as a special / threatening object.
+  ctx.shadowColor = 'rgba(255, 200, 60, 0.55)'
+  ctx.shadowBlur = 14
+
+  // Teeth — tilted triangles around the rim, slight gold tint at the tip.
+  ctx.beginPath()
+  for (let i = 0; i < teethCount; i++) {
+    const a0 = (i / teethCount) * Math.PI * 2
+    const a1 = ((i + 0.55) / teethCount) * Math.PI * 2
+    const a2 = ((i + 0.85) / teethCount) * Math.PI * 2
+    // Base point at a0, tip at midpoint between a0 and a1 (outer R),
+    // trailing edge back to a2 on the inner rim.
+    const aMid = (a0 + a1) / 2
+    ctx.moveTo(Math.cos(a0) * innerR, Math.sin(a0) * innerR)
+    ctx.lineTo(Math.cos(aMid) * R * 1.02, Math.sin(aMid) * R * 1.02)
+    ctx.lineTo(Math.cos(a2) * innerR, Math.sin(a2) * innerR)
+    ctx.closePath()
+  }
+  const teethGrad = ctx.createRadialGradient(0, 0, innerR * 0.6, 0, 0, R * 1.05)
+  teethGrad.addColorStop(0, '#9AA3B0')
+  teethGrad.addColorStop(0.7, '#C8CFDB')
+  teethGrad.addColorStop(1, '#E8C25A')
+  ctx.fillStyle = teethGrad
+  ctx.fill()
+
+  ctx.shadowBlur = 0
+
+  // Body — metallic radial gradient.
+  const bodyGrad = ctx.createRadialGradient(-R * 0.35, -R * 0.35, 2, 0, 0, innerR)
+  bodyGrad.addColorStop(0, '#F0F4FB')
+  bodyGrad.addColorStop(0.4, '#B5BCC8')
+  bodyGrad.addColorStop(1, '#5A6271')
+  ctx.fillStyle = bodyGrad
+  ctx.beginPath()
+  ctx.arc(0, 0, innerR, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Concentric rim ring for mechanical detail.
+  ctx.strokeStyle = 'rgba(40, 48, 60, 0.6)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.arc(0, 0, innerR * 0.85, 0, Math.PI * 2)
+  ctx.stroke()
+
+  // Three bolt-holes on the body to suggest a real blade.
+  for (let i = 0; i < 3; i++) {
+    const ang = (i / 3) * Math.PI * 2
+    const bx = Math.cos(ang) * innerR * 0.55
+    const by = Math.sin(ang) * innerR * 0.55
+    ctx.fillStyle = '#3A4150'
+    ctx.beginPath()
+    ctx.arc(bx, by, 1.6, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // Arbor (center mount hole)
+  ctx.fillStyle = '#1A1F2C'
+  ctx.beginPath()
+  ctx.arc(0, 0, arborR, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.strokeStyle = '#7C8AB0'
+  ctx.lineWidth = 1
+  ctx.stroke()
+
+  // Specular highlight — small bright crescent upper-left.
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)'
+  ctx.beginPath()
+  ctx.ellipse(-R * 0.3, -R * 0.3, R * 0.18, R * 0.08, -Math.PI / 4, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.restore()
+}
+
+// Paints all active sawblade particles. Sparks are short bright streaks
+// along their velocity vector; fragments are small colored chips with a
+// subtle rotation. All particles fade out as `life` approaches 0.
+function drawSawbladeParticles(
+  ctx: CanvasRenderingContext2D,
+  particles: SawbladeParticle[],
+) {
+  ctx.save()
+  for (const p of particles) {
+    if (p.life <= 0) continue
+    const alpha = Math.min(1, p.life)
+    if (p.type === 'spark') {
+      // Bright streak in the direction of travel (backward tail = motion blur).
+      ctx.globalAlpha = Math.min(1, alpha * 1.3)
+      ctx.strokeStyle = p.color
+      ctx.shadowColor = p.color
+      ctx.shadowBlur = 12
+      ctx.lineWidth = p.size * 1.4
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+      ctx.moveTo(p.x, p.y)
+      const dx = p.vx ?? -1
+      const dy = p.vy ?? -1
+      const len = Math.sqrt(dx * dx + dy * dy) || 1
+      const streakLen = 8 + p.size * 2.5
+      ctx.lineTo(p.x - (dx / len) * streakLen, p.y - (dy / len) * streakLen)
+      ctx.stroke()
+      // Bright dot at particle head for extra punch
+      ctx.globalAlpha = Math.min(1, alpha * 0.9)
+      ctx.fillStyle = '#FFFACC'
+      ctx.shadowBlur = 8
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2)
+      ctx.fill()
+    } else {
+      // Fragment — small colored chunk with thin dark outline.
+      ctx.globalAlpha = alpha
+      ctx.shadowColor = p.color
+      ctx.shadowBlur = 4
+      ctx.save()
+      ctx.translate(p.x, p.y)
+      ctx.rotate(p.rotation ?? 0)
+      ctx.fillStyle = p.color
+      const w = p.size
+      const h = p.size * 0.6
+      ctx.beginPath()
+      ctx.moveTo(-w, -h * 0.5)
+      ctx.lineTo(w, -h * 0.8)
+      ctx.lineTo(w * 0.7, h * 0.7)
+      ctx.lineTo(-w * 0.9, h * 0.5)
+      ctx.closePath()
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(20, 20, 30, 0.55)'
+      ctx.lineWidth = 0.8
+      ctx.stroke()
+      ctx.restore()
+    }
+  }
+  ctx.restore()
+}
+
 function drawBallBody(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -422,12 +576,14 @@ function drawCraneRail(ctx: CanvasRenderingContext2D) {
 }
 
 // Crane gantry + gripper. `releaseProgress` 0..1 animates the claws opening.
+// `sawbladeRotation` is the current spinning angle for any sawblade held.
 function drawCrane(
   ctx: CanvasRenderingContext2D,
   craneX: number,
   ball: Ball | null,
   releaseProgress: number,
   showBall: boolean,
+  sawbladeRotation: number,
 ) {
   const bodyTop = CRANE_RAIL_Y
   const bodyBottom = CRANE_RAIL_Y + CRANE_BODY_H
@@ -532,11 +688,15 @@ function drawCrane(
 
   // Held ball
   if (showBall && ball) {
-    drawBall(
-      ctx, craneX, CRANE_GRIP_Y,
-      COLOR_HEX[ball.color], COLOR_GLOW[ball.color],
-      ball.weight, ball.variant, 1, 0,
-    )
+    if (ball.kind === 'sawblade') {
+      drawSawblade(ctx, craneX, CRANE_GRIP_Y, sawbladeRotation)
+    } else {
+      drawBall(
+        ctx, craneX, CRANE_GRIP_Y,
+        COLOR_HEX[ball.color], COLOR_GLOW[ball.color],
+        ball.weight, ball.variant, 1, 0,
+      )
+    }
   }
 
   ctx.restore()
@@ -608,6 +768,33 @@ export interface CraneAnim {
     rotation: number
     alpha: number
   }
+  // Continuous rotation for any sawblade currently visible (in the crane or
+  // mid-fall). Runs every frame in GameCanvas regardless of game state so
+  // the held blade always spins.
+  sawbladeRotation: number
+  // Active sawblade particles (sparks + colored fragments) — drawn above
+  // seesaws, below the crane. Owned and updated by GameCanvas; the renderer
+  // only paints them.
+  sawbladeParticles?: SawbladeParticle[]
+  // When the sawblade is grinding through a stack (sequential ball-clear),
+  // this is its current screen position. Drawn above balls, below particles.
+  sawbladeGrindPos?: { x: number; y: number }
+}
+
+// Particle rendered during a sawblade impact. GameCanvas integrates physics
+// (vx/vy + gravity + life decay) every frame; renderer just paints it.
+export interface SawbladeParticle {
+  x: number
+  y: number
+  size: number
+  color: string
+  life: number          // 0..1 remaining (drives alpha + fade)
+  type: 'spark' | 'fragment'
+  // Velocity — used by GameCanvas for physics AND by renderer for streak direction.
+  vx?: number
+  vy?: number
+  // For fragments: rotation makes shards look chunky rather than dot-like.
+  rotation?: number
 }
 
 export function render(
@@ -659,6 +846,17 @@ export function render(
     drawCatapultBall(ctx, cb.x, cb.y, cb.ball, cb.rotation, cb.alpha)
   }
 
+  // Grinding sawblade — on top of remaining balls, below particles.
+  if (craneAnim?.sawbladeGrindPos) {
+    const gp = craneAnim.sawbladeGrindPos
+    drawSawblade(ctx, gp.x, gp.y, craneAnim.sawbladeRotation)
+  }
+
+  // Sawblade particles — above the board, below the crane so they read clearly.
+  if (craneAnim?.sawbladeParticles && craneAnim.sawbladeParticles.length > 0) {
+    drawSawbladeParticles(ctx, craneAnim.sawbladeParticles)
+  }
+
   // Crane on top of everything (except gameover overlay)
   if (state.phase !== 'gameover' && craneAnim) {
     drawCrane(
@@ -667,16 +865,21 @@ export function render(
       state.nextBall,
       craneAnim.releaseProgress,
       craneAnim.showBallInCrane,
+      craneAnim.sawbladeRotation,
     )
 
     // Falling ball, if any
     if (craneAnim.fallingBall) {
       const fb = craneAnim.fallingBall
-      drawBall(
-        ctx, fb.x, fb.y,
-        COLOR_HEX[fb.ball.color], COLOR_GLOW[fb.ball.color],
-        fb.ball.weight, fb.ball.variant, 1, 0,
-      )
+      if (fb.ball.kind === 'sawblade') {
+        drawSawblade(ctx, fb.x, fb.y, craneAnim.sawbladeRotation)
+      } else {
+        drawBall(
+          ctx, fb.x, fb.y,
+          COLOR_HEX[fb.ball.color], COLOR_GLOW[fb.ball.color],
+          fb.ball.weight, fb.ball.variant, 1, 0,
+        )
+      }
     }
   }
 

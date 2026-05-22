@@ -35,6 +35,7 @@ Their core need: a satisfying, low-friction puzzle loop that rewards clever plac
 | P2 | Difficulty levels — adjust number of colors or catapult threshold | Planned |
 | P1 | Match dissolve animation — Star Trek transporter beam effect when balls are cleared (#5) | Planned |
 | P2 | Mobile/touch support — tap targets sized for phone screens | Planned |
+| P1 | Special Ball: Sägeblatt — rotierendes Sägeblatt cleared komplette Arm-Spalte mit Partikeleffekten (#11) | Planned |
 
 ## Success Metrics
 

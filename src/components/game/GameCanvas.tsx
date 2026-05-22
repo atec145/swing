@@ -14,6 +14,7 @@ import {
   slotAnchor,
   type CraneAnim,
   type DissolveAnim,
+  type SawbladeParticle,
 } from '@/game/renderer'
 import { computeAngle } from '@/game/physics'
 import {
@@ -28,6 +29,7 @@ import {
   PIVOT_Y,
   ARM_LENGTH,
   NUM_SEESAWS,
+  COLOR_HEX,
 } from '@/game/constants'
 
 interface Props {
@@ -37,6 +39,7 @@ interface Props {
   onCraneSetPosition: (index: number) => void
   onConsumeCatapult: (seq: number) => void
   onConsumeMatch: (seq: number) => void
+  onConsumeSawblade: (seq: number) => void
   onRestart: () => void
 }
 
@@ -46,6 +49,15 @@ const DISSOLVE_PHASE_MS = [500, 500, 1000, 800, 500] as const
 const DISSOLVE_TOTAL_MS = DISSOLVE_PHASE_MS.reduce((a, b) => a + b, 0)
 
 const NUM_SLOTS = NUM_SEESAWS * 2
+
+// Sawblade animation tuning (Issue #11)
+const SAWBLADE_SPIN_PER_SEC = Math.PI * 2     // 1 revolution/second base
+const SAWBLADE_GRIND_BOOST = Math.PI * 8      // extra angular velocity while grinding sparks
+const SAWBLADE_SPARK_MS = 220                  // gold sparks only, per ball
+const SAWBLADE_FRAG_MS = 160                   // colored fragments, ball removed, per ball
+const SAWBLADE_NEXTFALL_MS = 100               // blade falls to next ball
+const SPARK_COUNT = 28                         // particles per ball impact
+const FRAG_PER_BALL = 5                        // fragment particles per cleared ball
 
 // Catapult animation tuning (see Issue #3 tech design).
 const MS_PER_SLOT = 300
@@ -82,6 +94,45 @@ interface FlightSegment {
   // Fade behaviour: 'in' = fade up from 0 (re-enter after wrap),
   // 'out' = fade down to 0 (about to exit a screen edge), else full opacity.
   fade: 'in' | 'out' | 'none'
+}
+
+// Spawns a burst of golden sparks at (x, y). Velocities fan out radially
+// with a slight upward bias — grinding-wheel look. Lifetime ~300ms.
+function spawnSawbladeSparks(x: number, y: number, particles: SawbladeParticle[]) {
+  for (let i = 0; i < SPARK_COUNT; i++) {
+    const ang = (i / SPARK_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.5
+    const speed = 3 + Math.random() * 4
+    particles.push({
+      x,
+      y,
+      size: 2 + Math.random() * 2,
+      color: Math.random() < 0.6 ? '#FFD700' : '#FFA500',
+      life: 1,
+      type: 'spark',
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed - 1.8,
+    })
+  }
+}
+
+// Spawns colored fragment particles for a single cleared ball at (x, y).
+function spawnSawbladeFragments(x: number, y: number, ball: Ball, particles: SawbladeParticle[]) {
+  const hex = COLOR_HEX[ball.color]
+  for (let i = 0; i < FRAG_PER_BALL; i++) {
+    const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.8
+    const speed = 3.5 + Math.random() * 4.5
+    particles.push({
+      x: x + (Math.random() - 0.5) * 14,
+      y: y + (Math.random() - 0.5) * 8,
+      size: 3 + Math.random() * 2.5,
+      color: hex,
+      life: 1,
+      type: 'fragment',
+      rotation: Math.random() * Math.PI * 2,
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed,
+    })
+  }
 }
 
 // Y position of the platform for a given seesaw side at a given angle.
@@ -219,6 +270,7 @@ export default function GameCanvas({
   onCraneSetPosition,
   onConsumeCatapult,
   onConsumeMatch,
+  onConsumeSawblade,
   onRestart,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -231,6 +283,8 @@ export default function GameCanvas({
   onConsumeCatapultRef.current = onConsumeCatapult
   const onConsumeMatchRef = useRef(onConsumeMatch)
   onConsumeMatchRef.current = onConsumeMatch
+  const onConsumeSawbladeRef = useRef(onConsumeSawblade)
+  onConsumeSawbladeRef.current = onConsumeSawblade
   const onDropRef = useRef(onDrop)
   onDropRef.current = onDrop
   const onCraneSetPositionRef = useRef(onCraneSetPosition)
@@ -274,6 +328,28 @@ export default function GameCanvas({
     dissolveStartT: number                // start time of the active group
     dissolveFinishSeq: number | null      // seq to commit once all groups done
 
+    // --- Sawblade special effect ---
+    sawbladeRotation: number              // continuous spin angle (rad)
+    sawbladeLastTickT: number             // last frame timestamp for rotation step
+    sawbladeSeq: number | null            // seq of pending sawblade event
+    // Sequential per-ball grind phases:
+    //   'nextfall' → blade drops to next ball position
+    //   'sparks'   → gold sparks only (no fragments yet)
+    //   'fragments'→ colored ball fragments, ball removed from visual seesaws
+    sawbladePhase: 'idle' | 'nextfall' | 'sparks' | 'fragments'
+    sawbladePhaseStartT: number
+    sawbladeImpactX: number               // fixed X of the arm being cleared
+    sawbladeImpactY: number               // Y where falling animation stopped
+    sawbladeCurrentY: number              // blade's current grinding Y
+    sawbladePrevY: number                 // start Y for 'nextfall' interpolation
+    sawbladeNextY: number                 // end Y for 'nextfall' interpolation
+    sawbladeBallsToGrind: Ball[]          // remaining balls top-first
+    sawbladeVisualSeesaws: SeesawState[] | null  // board with not-yet-cleared balls
+    sawbladeSeesawIdx: number
+    sawbladeSideAnim: 'left' | 'right'
+    sawbladeParticles: SawbladeParticle[]
+    sawbladeFinishSeq: number | null      // seq to commit once animation ends
+
     // Override duration for the next crane move (set by touch handler to scale
     // with jump distance; consumed and cleared by the cranePositionIndex effect).
     pendingMoveDuration: number | null
@@ -305,6 +381,22 @@ export default function GameCanvas({
     dissolveBallIds: new Set(),
     dissolveStartT: 0,
     dissolveFinishSeq: null,
+    sawbladeRotation: 0,
+    sawbladeLastTickT: 0,
+    sawbladeSeq: null,
+    sawbladePhase: 'idle' as 'idle' | 'nextfall' | 'sparks' | 'fragments',
+    sawbladePhaseStartT: 0,
+    sawbladeImpactX: 0,
+    sawbladeImpactY: 0,
+    sawbladeCurrentY: 0,
+    sawbladePrevY: 0,
+    sawbladeNextY: 0,
+    sawbladeBallsToGrind: [] as Ball[],
+    sawbladeVisualSeesaws: null as SeesawState[] | null,
+    sawbladeSeesawIdx: 0,
+    sawbladeSideAnim: 'left' as 'left' | 'right',
+    sawbladeParticles: [],
+    sawbladeFinishSeq: null,
     pendingMoveDuration: null,
   })
 
@@ -318,17 +410,24 @@ export default function GameCanvas({
     return a.dissolveVisual !== null
   }, [])
 
+  const isAnimatingSawblade = useCallback(() => {
+    const a = animRef.current
+    return a.sawbladePhase !== 'idle' || a.sawbladeVisualSeesaws !== null
+  }, [])
+
   // Input is locked while releasing, while a ball falls, while a catapult
-  // chain is replaying, OR while a match dissolve is animating.
+  // chain is replaying, while a match dissolve is animating, OR while a
+  // sawblade special effect is running.
   const isInputLocked = useCallback(() => {
     const a = animRef.current
     return (
       a.isReleasing ||
       a.fallingBall !== null ||
       isAnimatingCatapult() ||
-      isAnimatingDissolve()
+      isAnimatingDissolve() ||
+      isAnimatingSawblade()
     )
-  }, [isAnimatingCatapult, isAnimatingDissolve])
+  }, [isAnimatingCatapult, isAnimatingDissolve, isAnimatingSawblade])
 
   const targetCraneX = useCallback((posIndex: number) => craneXForIndex(posIndex), [])
 
@@ -363,6 +462,13 @@ export default function GameCanvas({
       a.dissolveVisual = null
       a.dissolveBallIds = new Set()
       a.dissolveFinishSeq = null
+      // Abort any in-flight sawblade effect on restart.
+      a.sawbladeSeq = null
+      a.sawbladePhase = 'idle'
+      a.sawbladeParticles = []
+      a.sawbladeFinishSeq = null
+      a.sawbladeBallsToGrind = []
+      a.sawbladeVisualSeesaws = null
       return
     }
 
@@ -410,6 +516,47 @@ export default function GameCanvas({
     a.dissolveVisual = null
     a.dissolveBallIds = new Set()
   }, [gameState.pendingMatch])
+
+  // Detect a fresh sawblade event. Initialises the sequential per-ball grind
+  // animation. The sawblade visually continues from where the falling-ball
+  // animation stopped (sawbladeImpactY), then drops to the first ball and
+  // begins sparks → fragments cycling through each cleared ball top-to-bottom.
+  useEffect(() => {
+    const pending = gameState.pendingSawblade
+    if (!pending) return
+    const a = animRef.current
+    if (a.sawbladeSeq === pending.seq) return
+
+    a.sawbladeSeq = pending.seq
+    a.sawbladeFinishSeq = pending.seq
+
+    // clearedBalls order: index 0 = bottom, last = top (arm array order).
+    // Reverse so index 0 = top ball (first to be cut).
+    a.sawbladeBallsToGrind = [...pending.clearedBalls].reverse()
+    a.sawbladeSeesawIdx = pending.seesawIndex
+    a.sawbladeSideAnim = pending.side
+
+    // Rebuild the visual board with all cleared balls still present —
+    // the real state has already removed them.
+    a.sawbladeVisualSeesaws = cloneSeesaws(stateRef.current.seesaws)
+    const visualArm = a.sawbladeVisualSeesaws[pending.seesawIndex][pending.side]
+    for (const b of pending.clearedBalls) visualArm.push(b)  // re-add bottom-to-top
+
+    // Blade starts at sawbladeImpactY (where falling animation stopped), then
+    // drops one BALL_SPACING to reach the topmost ball in a brief 'nextfall'.
+    a.sawbladeCurrentY = a.sawbladeImpactY
+    if (a.sawbladeBallsToGrind.length > 0) {
+      a.sawbladePrevY = a.sawbladeImpactY
+      a.sawbladeNextY = a.sawbladeImpactY + BALL_SPACING
+      a.sawbladePhase = 'nextfall'
+    } else {
+      // Empty arm — just a brief spark effect
+      a.sawbladeNextY = a.sawbladeImpactY
+      spawnSawbladeSparks(a.sawbladeImpactX, a.sawbladeImpactY, a.sawbladeParticles)
+      a.sawbladePhase = 'sparks'
+    }
+    a.sawbladePhaseStartT = performance.now()
+  }, [gameState.pendingSawblade])
 
   // RAF loop.
   useEffect(() => {
@@ -555,10 +702,105 @@ export default function GameCanvas({
         a.fallingBall.vy += FALL_GRAVITY
         a.fallingBall.y += a.fallingBall.vy
         if (a.fallingBall.y >= a.fallTarget) {
-          const drop = a.pendingDropAfterFall
+          // Capture impact position BEFORE clearing — used by the upcoming
+          // sawblade effect (if this was a sawblade drop).
+          a.sawbladeImpactX = a.fallingBall.x
+          a.sawbladeImpactY = a.fallTarget
           a.fallingBall = null
+          const drop = a.pendingDropAfterFall
           a.pendingDropAfterFall = null
           if (drop) onDropRef.current(drop.seesawIndex, drop.side)
+        }
+      }
+
+      // Continuous sawblade rotation. Runs every frame so a sawblade in the
+      // crane spins while waiting for input. Acceleration during the
+      // 'sparks' phase makes the impact feel like grinding.
+      {
+        const dt = a.sawbladeLastTickT === 0 ? 16 : Math.min(64, now - a.sawbladeLastTickT)
+        a.sawbladeLastTickT = now
+        // Blade spins faster while cutting (sparks phase only)
+        const boost = a.sawbladePhase === 'sparks' ? SAWBLADE_GRIND_BOOST : 0
+        a.sawbladeRotation += (SAWBLADE_SPIN_PER_SEC + boost) * (dt / 1000)
+      }
+
+      // Sawblade particle physics + sequential per-ball phase advancement
+      if (a.sawbladeParticles.length > 0 || a.sawbladePhase !== 'idle') {
+        // Integrate each particle — vx/vy are now proper typed fields.
+        const survivors: SawbladeParticle[] = []
+        const lifeDecay = 1 / 36  // ~600ms total at 60fps
+        for (const p of a.sawbladeParticles) {
+          p.x += p.vx ?? 0
+          p.y += p.vy ?? 0
+          if (p.type === 'spark') {
+            // Gravity + drag for realistic spark arc
+            if (p.vy !== undefined) p.vy += 0.2
+            if (p.vx !== undefined) p.vx *= 0.95
+            if (p.vy !== undefined) p.vy *= 0.95
+          } else {
+            // Fragments: more gravity, less drag
+            if (p.vy !== undefined) p.vy += 0.35
+          }
+          // Fragment spin (spin stored as a scratch field on the particle object)
+          const spin = (p as SawbladeParticle & { spin?: number }).spin
+          if (spin !== undefined && p.rotation !== undefined) p.rotation += spin
+          p.life -= lifeDecay
+          if (p.life > 0) survivors.push(p)
+        }
+        a.sawbladeParticles = survivors
+
+        // Sequential phase machine
+        const elapsed = now - a.sawbladePhaseStartT
+
+        if (a.sawbladePhase === 'nextfall') {
+          // Interpolate blade Y from prevY to nextY (easeInOut quad)
+          const t = Math.min(1, elapsed / SAWBLADE_NEXTFALL_MS)
+          const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+          a.sawbladeCurrentY = a.sawbladePrevY + (a.sawbladeNextY - a.sawbladePrevY) * eased
+          if (t >= 1) {
+            a.sawbladeCurrentY = a.sawbladeNextY
+            spawnSawbladeSparks(a.sawbladeImpactX, a.sawbladeCurrentY, a.sawbladeParticles)
+            a.sawbladePhase = 'sparks'
+            a.sawbladePhaseStartT = now
+          }
+
+        } else if (a.sawbladePhase === 'sparks') {
+          if (elapsed >= SAWBLADE_SPARK_MS) {
+            // Cut the current top ball
+            const ball = a.sawbladeBallsToGrind[0]
+            if (ball) {
+              spawnSawbladeFragments(a.sawbladeImpactX, a.sawbladeCurrentY, ball, a.sawbladeParticles)
+              // Remove top ball from the visual board
+              if (a.sawbladeVisualSeesaws) {
+                const arm = a.sawbladeVisualSeesaws[a.sawbladeSeesawIdx][a.sawbladeSideAnim]
+                arm.pop()
+              }
+              a.sawbladeBallsToGrind.shift()
+            }
+            a.sawbladePhase = 'fragments'
+            a.sawbladePhaseStartT = now
+          }
+
+        } else if (a.sawbladePhase === 'fragments') {
+          if (elapsed >= SAWBLADE_FRAG_MS) {
+            if (a.sawbladeBallsToGrind.length > 0) {
+              // More balls — drop blade to next
+              a.sawbladePrevY = a.sawbladeCurrentY
+              a.sawbladeNextY = a.sawbladeCurrentY + BALL_SPACING
+              a.sawbladePhase = 'nextfall'
+              a.sawbladePhaseStartT = now
+            } else {
+              // All balls cleared — wait for remaining particles then finish
+              if (a.sawbladeParticles.length === 0) {
+                const finishSeq = a.sawbladeFinishSeq
+                a.sawbladePhase = 'idle'
+                a.sawbladeSeq = null
+                a.sawbladeFinishSeq = null
+                a.sawbladeVisualSeesaws = null
+                if (finishSeq !== null) onConsumeSawbladeRef.current(finishSeq)
+              }
+            }
+          }
         }
       }
 
@@ -621,14 +863,16 @@ export default function GameCanvas({
         }
       }
 
-      // Build the GameState to render. Priority: catapult replay snapshot,
-      // then the dissolve snapshot (doomed balls still present), else live.
+      // Build the GameState to render. Priority: catapult → dissolve →
+      // sawblade visual (balls not yet ground away) → live.
       const baseState = stateRef.current
       const renderState: GameState = a.catapultVisual
         ? { ...baseState, seesaws: a.catapultVisual }
         : a.dissolveVisual
           ? { ...baseState, seesaws: a.dissolveVisual }
-          : baseState
+          : a.sawbladeVisualSeesaws
+            ? { ...baseState, seesaws: a.sawbladeVisualSeesaws }
+            : baseState
 
       const craneAnim: CraneAnim = {
         craneX: a.craneCurrentX,
@@ -638,11 +882,18 @@ export default function GameCanvas({
           !a.fallingBall &&
           !a.pendingDrop &&
           !isAnimatingCatapult() &&
-          !isAnimatingDissolve(),
+          !isAnimatingDissolve() &&
+          !isAnimatingSawblade(),
         fallingBall: a.fallingBall
           ? { x: a.fallingBall.x, y: a.fallingBall.y, ball: a.fallingBall.ball }
           : null,
         catapultBall,
+        sawbladeRotation: a.sawbladeRotation,
+        sawbladeParticles: a.sawbladeParticles,
+        // Show grinding sawblade during the sequential ball-clear animation.
+        sawbladeGrindPos: a.sawbladePhase !== 'idle'
+          ? { x: a.sawbladeImpactX, y: a.sawbladeCurrentY }
+          : undefined,
       }
 
       render(ctx, renderState, craneAnim, dissolveAnim)
@@ -672,7 +923,7 @@ export default function GameCanvas({
       running = false
       cancelAnimationFrame(rafRef.current)
     }
-  }, [isAnimatingCatapult, isAnimatingDissolve])
+  }, [isAnimatingCatapult, isAnimatingDissolve, isAnimatingSawblade])
 
   // Tab-visibility skip: if the tab is hidden mid-dissolve, snap to the final
   // state immediately (balls already removed in logic) — no stuck animation.

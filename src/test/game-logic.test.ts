@@ -30,6 +30,7 @@ function stateWith(seesaws: SeesawState[]): GameState {
     cranePositionIndex: 0,
     pendingCatapult: null,
     pendingMatch: null,
+    pendingSawblade: null,
   }
 }
 

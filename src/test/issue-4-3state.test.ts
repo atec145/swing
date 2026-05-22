@@ -15,10 +15,11 @@ function emptyBoard(): SeesawState[] {
 }
 function stateWith(seesaws: SeesawState[], nextBall: Ball): GameState {
   return {
-    seesaws, score: 0, nextBall, phase: 'waiting',
+    seesaws, score: 0, nextBall, queuedBall: nextBall, phase: 'waiting',
     hoverSeesaw: null, hoverSide: null, cranePositionIndex: 0,
     pendingCatapult: null,
     pendingMatch: null,
+    pendingSawblade: null,
   }
 }
 

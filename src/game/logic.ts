@@ -36,7 +36,29 @@ export function tierForScore(score: number) {
 // the first `activeHalfColors` entries (same unlock order as full balls);
 // when eligible it is a 50/50 full/half coin flip. Colors outside the
 // half-ball window are always full.
+// Score threshold above which the sawblade special ball may spawn, and the
+// per-roll probability. Below the threshold, sawblades never appear so early
+// gameplay stays focused on the core mechanic.
+const SAWBLADE_MIN_SCORE = 300
+const SAWBLADE_PROBABILITY = 0.05
+
 export function createBall(score = 0, override?: Partial<Ball>): Ball {
+  // Sawblade roll — always runs first so the dice are independent of color choice.
+  if (
+    !override?.kind &&
+    score >= SAWBLADE_MIN_SCORE &&
+    Math.random() < SAWBLADE_PROBABILITY
+  ) {
+    return {
+      id: `b${++ballIdCounter}`,
+      color: 'green',     // dummy — not used for sawblade rendering
+      variant: 'full',    // dummy — not used for sawblade rendering
+      weight: 0,          // zero weight: sawblade does NOT affect tilt physics
+      kind: 'sawblade',
+      ...override,
+    }
+  }
+
   const tier = tierForScore(score)
   const colorIndex = Math.floor(Math.random() * tier.activeColors)
   const color = COLORS[colorIndex]
@@ -44,7 +66,7 @@ export function createBall(score = 0, override?: Partial<Ball>): Ball {
   const variant: Variant =
     halfEligible && Math.random() < 0.5 ? 'half' : 'full'
   const weight = WEIGHT_POOL[Math.floor(Math.random() * WEIGHT_POOL.length)]
-  return { id: `b${++ballIdCounter}`, color, variant, weight, ...override }
+  return { id: `b${++ballIdCounter}`, color, variant, weight, kind: 'normal', ...override }
 }
 
 function makeSeesaw(): SeesawState {
@@ -74,6 +96,7 @@ export function createInitialState(): GameState {
     cranePositionIndex: 0, // start over seesaw 0, left side
     pendingCatapult: null,
     pendingMatch: null,
+    pendingSawblade: null,
   }
 }
 
@@ -357,6 +380,14 @@ export interface DropResult {
   preCatapultSeesaws: SeesawState[]
   // One MatchGroup per cascade round (ordered). Empty when nothing matched.
   matchGroups: MatchGroup[]
+  // Side-channel for sawblade drops: which arm was wiped and which balls
+  // were removed (used by the canvas to spawn colored fragment particles).
+  // undefined for non-sawblade drops.
+  sawbladeEvent?: {
+    seesawIndex: number
+    side: 'left' | 'right'
+    clearedBalls: Ball[]
+  }
 }
 
 export function dropBall(
@@ -373,6 +404,42 @@ export function dropBall(
     }
   }
 
+  const ball = state.nextBall
+
+  // Sawblade branch: bypasses weight physics + match scanning. Clears the
+  // targeted arm, awards normal match points per cleared ball, never triggers
+  // a catapult (weight = 0 → no tilt change anyway).
+  if (ball.kind === 'sawblade') {
+    const sw = state.seesaws[seesawIndex]
+    const clearedBalls = side === 'left' ? [...sw.left] : [...sw.right]
+    const newLeft = side === 'left' ? [] : [...sw.left]
+    const newRight = side === 'right' ? [] : [...sw.right]
+    const seesaws = state.seesaws.map((s, i) =>
+      i === seesawIndex ? makeSeesawFrom(newLeft, newRight) : s,
+    )
+    // Score: 10 points per cleared ball (matches normal match per-ball value).
+    const bonus = clearedBalls.length * 10
+    const newScore = state.score + bonus
+    return {
+      state: {
+        ...state,
+        seesaws,
+        score: newScore,
+        nextBall: state.queuedBall,
+        queuedBall: createBall(newScore),
+        phase: isGameOver(seesaws) ? 'gameover' : 'waiting',
+      },
+      catapultEvents: [],
+      preCatapultSeesaws: state.seesaws,
+      matchGroups: [],
+      sawbladeEvent: {
+        seesawIndex,
+        side,
+        clearedBalls,
+      },
+    }
+  }
+
   const sw = state.seesaws[seesawIndex]
   const targetStack = side === 'left' ? sw.left : sw.right
   if (targetStack.length >= MAX_STACK) {
@@ -383,8 +450,6 @@ export function dropBall(
       matchGroups: [],
     }
   }
-
-  const ball = state.nextBall
   // Snapshot the board *before* the drop so processCatapults can detect the
   // tilt transition the dropped ball causes on the start seesaw.
   const preDropSeesaws = state.seesaws
