@@ -54,7 +54,7 @@ const NUM_SLOTS = NUM_SEESAWS * 2
 // Sawblade animation tuning (Issue #11)
 const SAWBLADE_SPIN_PER_SEC = Math.PI * 2     // 1 revolution/second base
 const SAWBLADE_BOUNCE_MS = 160                 // initial bounce before first grind
-const SAWBLADE_BOUNCE_HEIGHT = 11              // px upward displacement at peak
+const SAWBLADE_BOUNCE_HEIGHT = 33              // px upward displacement at peak
 const SAWBLADE_SPARK_MS = 350                  // gold sparks only, per ball
 const SAWBLADE_FRAG_MS = 180                   // colored fragments, ball removed, per ball
 const SAWBLADE_NEXTFALL_MS = 140               // blade falls to next ball
@@ -577,10 +577,8 @@ export default function GameCanvas({
     const visualArm = a.sawbladeVisualSeesaws[pending.seesawIndex][pending.side]
     for (const b of pending.clearedBalls) visualArm.push(b)  // re-add bottom-to-top
 
-    // Due to the MAX_ANGLE = asin(BALL_SPACING/ARM_LENGTH) geometry, impactY
-    // equals the top ball's center Y in the visual (balanced) seesaws. The
-    // blade lands exactly on ball #1 — start sparks immediately rather than
-    // doing a 'nextfall' that would skip the first ball and target ball #2.
+    // impactY = where the falling blade stopped (one BALL_SPACING above the top
+    // ball). After the bounce the phase machine does nextfall to the first ball.
     a.sawbladeCurrentY = a.sawbladeImpactY
     a.sawbladePhase = 'bounce'
     a.sawbladePhaseStartT = performance.now()
@@ -795,9 +793,12 @@ export default function GameCanvas({
           const t = Math.min(1, elapsed / SAWBLADE_BOUNCE_MS)
           a.sawbladeCurrentY = a.sawbladeImpactY - SAWBLADE_BOUNCE_HEIGHT * Math.sin(Math.PI * t)
           if (t >= 1) {
+            // impactY is one BALL_SPACING ABOVE the top ball (sawblade landed on
+            // top of the stack, not inside it). Drop blade to the first ball.
             a.sawbladeCurrentY = a.sawbladeImpactY
-            spawnSawbladeSparks(a.sawbladeImpactX, a.sawbladeCurrentY, a.sawbladeParticles)
-            a.sawbladePhase = 'sparks'
+            a.sawbladePrevY = a.sawbladeImpactY
+            a.sawbladeNextY = a.sawbladeImpactY + BALL_SPACING
+            a.sawbladePhase = 'nextfall'
             a.sawbladePhaseStartT = now
           }
 
