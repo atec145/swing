@@ -541,23 +541,23 @@ function drawSawbladeParticles(
       ctx.globalAlpha = Math.min(1, alpha * 1.3)
       ctx.strokeStyle = p.color
       ctx.shadowColor = p.color
-      ctx.shadowBlur = 12
-      ctx.lineWidth = p.size * 1.4
+      ctx.shadowBlur = 5
+      ctx.lineWidth = p.size * 0.7
       ctx.lineCap = 'round'
       ctx.beginPath()
       ctx.moveTo(p.x, p.y)
       const dx = p.vx ?? -1
       const dy = p.vy ?? -1
       const len = Math.sqrt(dx * dx + dy * dy) || 1
-      const streakLen = 8 + p.size * 2.5
+      const streakLen = 5 + p.size * 1.5
       ctx.lineTo(p.x - (dx / len) * streakLen, p.y - (dy / len) * streakLen)
       ctx.stroke()
-      // Bright dot at particle head for extra punch
-      ctx.globalAlpha = Math.min(1, alpha * 0.9)
+      // Tiny bright dot at particle head
+      ctx.globalAlpha = Math.min(1, alpha * 0.8)
       ctx.fillStyle = '#FFFACC'
-      ctx.shadowBlur = 8
+      ctx.shadowBlur = 4
       ctx.beginPath()
-      ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2)
+      ctx.arc(p.x, p.y, p.size * 0.35, 0, Math.PI * 2)
       ctx.fill()
     } else if (p.type === 'rock-fragment') {
       // Rock fragment — chunkier, more angular than colored fragments.

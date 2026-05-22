@@ -109,7 +109,7 @@ function spawnSawbladeSparks(x: number, y: number, particles: SawbladeParticle[]
     particles.push({
       x: x + (Math.random() - 0.5) * 6,
       y: y + (Math.random() - 0.5) * 4,
-      size: 3.5 + Math.random() * 4,
+      size: 1.8 + Math.random() * 1.8,
       color: isBright ? '#FFEE44' : (Math.random() < 0.5 ? '#FFD700' : '#FF9900'),
       life: 1,
       type: 'spark',
