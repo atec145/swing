@@ -55,9 +55,14 @@ const NUM_SLOTS = NUM_SEESAWS * 2
 const SAWBLADE_SPIN_PER_SEC = Math.PI * 2     // 1 revolution/second base
 const SAWBLADE_BOUNCE_MS = 160                 // initial bounce before first grind
 const SAWBLADE_BOUNCE_HEIGHT = 33              // px upward displacement at peak
-const SAWBLADE_SPARK_MS = 350                  // gold sparks only, per ball
-const SAWBLADE_FRAG_MS = 180                   // colored fragments, ball removed, per ball
-const SAWBLADE_NEXTFALL_MS = 140               // blade falls to next ball
+const SAWBLADE_GRIND_MS = 420                  // total time to cut through one ball + traverse to next
+const SAWBLADE_SPARK_INTERVAL_MS = 22          // cadence of continuous spark pulses
+const SAWBLADE_SPARK_PER_PULSE = 4             // sparks spawned per pulse during cut
+// Cutting happens from t=0 (blade touches ball top, set up by the bounce
+// end / previous grind's exit position) to t=0.90 (blade reaches ball
+// bottom). The remaining 10% is the 4px traversal in the inter-ball gap.
+const GRIND_CUT_START = 0
+const GRIND_CUT_END = 0.90
 const SPARK_COUNT = 55                         // particles per ball impact
 const FRAG_PER_BALL = 6                        // fragment particles per cleared ball
 
@@ -96,6 +101,30 @@ interface FlightSegment {
   // Fade behaviour: 'in' = fade up from 0 (re-enter after wrap),
   // 'out' = fade down to 0 (about to exit a screen edge), else full opacity.
   fade: 'in' | 'out' | 'none'
+}
+
+// Spawns a small ongoing pulse of sparks at the blade-ball contact point.
+// Called repeatedly during the grind so sparks stream continuously from the
+// cut line rather than appearing as a single burst.
+function spawnSawbladeSparksPulse(x: number, y: number, particles: SawbladeParticle[]) {
+  for (let i = 0; i < SAWBLADE_SPARK_PER_PULSE; i++) {
+    // Bias the angle to a wide upper fan (sideways + up). Heavier weight on
+    // horizontal angles than upward — that matches how real grinder sparks shoot.
+    const side = i < SAWBLADE_SPARK_PER_PULSE / 2 ? -1 : 1
+    const ang = side * (Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.9)
+    const speed = 3.5 + Math.random() * 5
+    const isBright = Math.random() < 0.55
+    particles.push({
+      x: x + (Math.random() - 0.5) * 5,
+      y: y + (Math.random() - 0.5) * 3,
+      size: 1.4 + Math.random() * 1.6,
+      color: isBright ? '#FFF59A' : (Math.random() < 0.5 ? '#FFD700' : '#FF9900'),
+      life: 0.95,
+      type: 'spark',
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed - 1.6,
+    })
+  }
 }
 
 // Spawns a burst of golden sparks at (x, y). Fan is side-biased (like a
@@ -367,22 +396,22 @@ export default function GameCanvas({
     sawbladeRotation: number              // continuous spin angle (rad)
     sawbladeLastTickT: number             // last frame timestamp for rotation step
     sawbladeSeq: number | null            // seq of pending sawblade event
-    // Sequential per-ball grind phases:
-    //   'nextfall' → blade drops to next ball position
-    //   'sparks'   → gold sparks only (no fragments yet)
-    //   'fragments'→ colored ball fragments, ball removed from visual seesaws
-    sawbladePhase: 'idle' | 'bounce' | 'nextfall' | 'sparks' | 'fragments'
+    // Per-ball grind phases:
+    //   'bounce'    → initial deflection after landing (visual only)
+    //   'grind'     → blade progressively descends through one ball, continuous sparks
+    //   'finishing' → wait for trailing particles to fade, then commit
+    sawbladePhase: 'idle' | 'bounce' | 'grind' | 'finishing'
     sawbladePhaseStartT: number
     sawbladeImpactX: number               // fixed X of the arm being cleared
     sawbladeImpactY: number               // Y where falling animation stopped
-    sawbladeCurrentY: number              // blade's current grinding Y
-    sawbladePrevY: number                 // start Y for 'nextfall' interpolation
-    sawbladeNextY: number                 // end Y for 'nextfall' interpolation
+    sawbladeCurrentY: number              // blade's current grinding Y (live)
+    sawbladePrevY: number                 // Y where the current grind started (used for sub-progress + cut Y)
     sawbladeBallsToGrind: Ball[]          // remaining balls top-first
     sawbladeVisualSeesaws: SeesawState[] | null  // board with not-yet-cleared balls
     sawbladeSeesawIdx: number
     sawbladeSideAnim: 'left' | 'right'
     sawbladeParticles: SawbladeParticle[]
+    sawbladeLastSparkT: number            // timestamp of last continuous spark pulse
     sawbladeFinishSeq: number | null      // seq to commit once animation ends
 
     // Override duration for the next crane move (set by touch handler to scale
@@ -419,13 +448,13 @@ export default function GameCanvas({
     sawbladeRotation: 0,
     sawbladeLastTickT: 0,
     sawbladeSeq: null,
-    sawbladePhase: 'idle' as 'idle' | 'nextfall' | 'sparks' | 'fragments',
+    sawbladePhase: 'idle' as 'idle' | 'bounce' | 'grind' | 'finishing',
+    sawbladeLastSparkT: 0,
     sawbladePhaseStartT: 0,
     sawbladeImpactX: 0,
     sawbladeImpactY: 0,
     sawbladeCurrentY: 0,
     sawbladePrevY: 0,
-    sawbladeNextY: 0,
     sawbladeBallsToGrind: [] as Ball[],
     sawbladeVisualSeesaws: null as SeesawState[] | null,
     sawbladeSeesawIdx: 0,
@@ -739,23 +768,28 @@ export default function GameCanvas({
         }
       }
 
-      // Continuous sawblade rotation. Blade decelerates on ball contact (resistance),
-      // then accelerates as it cuts through, then spins freely while falling to the next.
+      // Continuous sawblade rotation. While cutting, the blade slows briefly
+      // (resistance at the ball's hard outer layer) then accelerates through
+      // the softer middle. In the gap between balls it spins fastest (no load).
       {
         const dt = a.sawbladeLastTickT === 0 ? 16 : Math.min(64, now - a.sawbladeLastTickT)
         a.sawbladeLastTickT = now
         let spinRate = SAWBLADE_SPIN_PER_SEC
-        if (a.sawbladePhase === 'nextfall') {
-          // Blade falling freely — spins fast
+        if (a.sawbladePhase === 'bounce') {
+          spinRate = SAWBLADE_SPIN_PER_SEC * 2
+        } else if (a.sawbladePhase === 'grind') {
+          const t = Math.min(1, (now - a.sawbladePhaseStartT) / SAWBLADE_GRIND_MS)
+          if (t < GRIND_CUT_END) {
+            const cutT = t / GRIND_CUT_END
+            // 0..0.2: resistance ramp 1.5x → 0.6x. 0.2..1.0: acceleration 0.6x → 4.5x.
+            spinRate = cutT < 0.2
+              ? SAWBLADE_SPIN_PER_SEC * (1.5 - 0.9 * (cutT / 0.2))
+              : SAWBLADE_SPIN_PER_SEC * (0.6 + 3.9 * ((cutT - 0.2) / 0.8))
+          } else {
+            spinRate = SAWBLADE_SPIN_PER_SEC * 5  // free spin through inter-ball gap
+          }
+        } else if (a.sawbladePhase === 'finishing') {
           spinRate = SAWBLADE_SPIN_PER_SEC * 3
-        } else if (a.sawbladePhase === 'sparks') {
-          const t = Math.min(1, (now - a.sawbladePhaseStartT) / SAWBLADE_SPARK_MS)
-          // First 35%: resistance slows the blade. Last 65%: blade cuts through, speeds up.
-          spinRate = t < 0.35
-            ? SAWBLADE_SPIN_PER_SEC * (1 - 0.75 * (t / 0.35))   // 1x → 0.25x
-            : SAWBLADE_SPIN_PER_SEC * (0.25 + 4.75 * ((t - 0.35) / 0.65))  // 0.25x → 5x
-        } else if (a.sawbladePhase === 'fragments') {
-          spinRate = SAWBLADE_SPIN_PER_SEC * 4  // ball just shattered — blade at full speed
         }
         a.sawbladeRotation += spinRate * (dt / 1000)
       }
@@ -789,71 +823,100 @@ export default function GameCanvas({
         const elapsed = now - a.sawbladePhaseStartT
 
         if (a.sawbladePhase === 'bounce') {
-          // Sine arc: blade jumps up to BOUNCE_HEIGHT at t=0.5, lands back at t=1
+          // Sine arc: blade jumps up to BOUNCE_HEIGHT at t=0.5, settles 4px lower
+          // at t=1 so it ends right above the first ball top (= impactY + gap).
           const t = Math.min(1, elapsed / SAWBLADE_BOUNCE_MS)
-          a.sawbladeCurrentY = a.sawbladeImpactY - SAWBLADE_BOUNCE_HEIGHT * Math.sin(Math.PI * t)
+          const gap = BALL_SPACING - 2 * BALL_RADIUS
+          a.sawbladeCurrentY = a.sawbladeImpactY
+            - SAWBLADE_BOUNCE_HEIGHT * Math.sin(Math.PI * t)
+            + gap * t
           if (t >= 1) {
-            // impactY is one BALL_SPACING ABOVE the top ball (sawblade landed on
-            // top of the stack, not inside it). Drop blade to the first ball.
-            a.sawbladeCurrentY = a.sawbladeImpactY
-            a.sawbladePrevY = a.sawbladeImpactY
-            a.sawbladeNextY = a.sawbladeImpactY + BALL_SPACING
-            a.sawbladePhase = 'nextfall'
+            // Bounce ended right above the first ball: blade bottom touches ball top.
+            a.sawbladeCurrentY = a.sawbladeImpactY + gap
+            a.sawbladePrevY = a.sawbladeCurrentY
+            a.sawbladePhase = 'grind'
             a.sawbladePhaseStartT = now
+            a.sawbladeLastSparkT = 0
+            // Impact burst at the contact point — that satisfying first-touch
+            // spark spike that turns into the continuous grinding stream.
+            spawnSawbladeSparks(a.sawbladeImpactX, a.sawbladeCurrentY + BALL_RADIUS, a.sawbladeParticles)
           }
 
-        } else if (a.sawbladePhase === 'nextfall') {
-          // Interpolate blade Y from prevY to nextY (easeInOut quad)
-          const t = Math.min(1, elapsed / SAWBLADE_NEXTFALL_MS)
-          const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
-          a.sawbladeCurrentY = a.sawbladePrevY + (a.sawbladeNextY - a.sawbladePrevY) * eased
-          if (t >= 1) {
-            a.sawbladeCurrentY = a.sawbladeNextY
-            spawnSawbladeSparks(a.sawbladeImpactX, a.sawbladeCurrentY, a.sawbladeParticles)
-            a.sawbladePhase = 'sparks'
-            a.sawbladePhaseStartT = now
+        } else if (a.sawbladePhase === 'grind') {
+          // Continuous descent through ball body (36px) + 4px gap to next ball.
+          // Total descent per ball = BALL_SPACING. Cutting (sparks + ball clip)
+          // happens in [GRIND_CUT_START, GRIND_CUT_END]; outside that the blade
+          // is in empty space between balls.
+          const t = Math.min(1, elapsed / SAWBLADE_GRIND_MS)
+          // Two-segment motion: 90% of the time cuts the ball body (slower,
+          // with mild resistance), last 10% snaps through the 4px gap.
+          const cutEnd = 2 * BALL_RADIUS                 // 36px traversed during cut
+          const gap    = BALL_SPACING - 2 * BALL_RADIUS  // 4px traversed in gap
+          if (t < GRIND_CUT_END) {
+            const cutT = t / GRIND_CUT_END
+            // Slight ease-out so the blade decelerates as it cuts through softer middle.
+            const eased = 1 - Math.pow(1 - cutT, 1.6)
+            a.sawbladeCurrentY = a.sawbladePrevY + cutEnd * eased
+          } else {
+            const gapT = (t - GRIND_CUT_END) / (1 - GRIND_CUT_END)
+            a.sawbladeCurrentY = a.sawbladePrevY + cutEnd + gap * gapT
           }
 
-        } else if (a.sawbladePhase === 'sparks') {
-          if (elapsed >= SAWBLADE_SPARK_MS) {
-            // Cut the current top ball — dispatch particles on ball kind.
+          // Spark pulses while cutting (the blade is overlapping the ball body)
+          if (t >= GRIND_CUT_START && t <= GRIND_CUT_END) {
+            if (now - a.sawbladeLastSparkT >= SAWBLADE_SPARK_INTERVAL_MS) {
+              const cutY = a.sawbladeCurrentY + BALL_RADIUS
+              spawnSawbladeSparksPulse(a.sawbladeImpactX, cutY, a.sawbladeParticles)
+              a.sawbladeLastSparkT = now
+            }
+          }
+
+          if (t >= 1) {
+            // Cut complete: pop ball, spawn fragments where the ball was.
             const ball = a.sawbladeBallsToGrind[0]
             if (ball) {
+              // Ball center was BALL_RADIUS + gap above prevY (= where blade bottom
+              // touched the ball top), and BALL_RADIUS below that. In total: ball
+              // center is at prevY + 2*BALL_RADIUS - BALL_RADIUS = prevY + BALL_RADIUS.
+              // Equivalently: ball center is currentY - (BALL_SPACING - BALL_RADIUS).
+              const ballCenterY = a.sawbladePrevY + BALL_RADIUS
               if (ball.kind === 'rock') {
-                spawnRockFragments(a.sawbladeImpactX, a.sawbladeCurrentY, a.sawbladeParticles)
+                spawnRockFragments(a.sawbladeImpactX, ballCenterY, a.sawbladeParticles)
               } else {
-                spawnSawbladeFragments(a.sawbladeImpactX, a.sawbladeCurrentY, ball, a.sawbladeParticles)
+                spawnSawbladeFragments(a.sawbladeImpactX, ballCenterY, ball, a.sawbladeParticles)
               }
-              // Remove top ball from the visual board
               if (a.sawbladeVisualSeesaws) {
                 const arm = a.sawbladeVisualSeesaws[a.sawbladeSeesawIdx][a.sawbladeSideAnim]
                 arm.pop()
               }
               a.sawbladeBallsToGrind.shift()
             }
-            a.sawbladePhase = 'fragments'
-            a.sawbladePhaseStartT = now
+            if (a.sawbladeBallsToGrind.length > 0) {
+              // Seamlessly start grinding the next ball — blade is already at
+              // the top contact point of ball N-1 (= old prevY + BALL_SPACING).
+              a.sawbladePrevY = a.sawbladeCurrentY
+              a.sawbladePhase = 'grind'
+              a.sawbladePhaseStartT = now
+              a.sawbladeLastSparkT = 0
+              // Small re-contact spark spike when biting into the next ball.
+              spawnSawbladeSparksPulse(a.sawbladeImpactX, a.sawbladeCurrentY + BALL_RADIUS, a.sawbladeParticles)
+              spawnSawbladeSparksPulse(a.sawbladeImpactX, a.sawbladeCurrentY + BALL_RADIUS, a.sawbladeParticles)
+              spawnSawbladeSparksPulse(a.sawbladeImpactX, a.sawbladeCurrentY + BALL_RADIUS, a.sawbladeParticles)
+            } else {
+              a.sawbladePhase = 'finishing'
+              a.sawbladePhaseStartT = now
+            }
           }
 
-        } else if (a.sawbladePhase === 'fragments') {
-          if (elapsed >= SAWBLADE_FRAG_MS) {
-            if (a.sawbladeBallsToGrind.length > 0) {
-              // More balls — drop blade to next
-              a.sawbladePrevY = a.sawbladeCurrentY
-              a.sawbladeNextY = a.sawbladeCurrentY + BALL_SPACING
-              a.sawbladePhase = 'nextfall'
-              a.sawbladePhaseStartT = now
-            } else {
-              // All balls cleared — wait for remaining particles then finish
-              if (a.sawbladeParticles.length === 0) {
-                const finishSeq = a.sawbladeFinishSeq
-                a.sawbladePhase = 'idle'
-                a.sawbladeSeq = null
-                a.sawbladeFinishSeq = null
-                a.sawbladeVisualSeesaws = null
-                if (finishSeq !== null) onConsumeSawbladeRef.current(finishSeq)
-              }
-            }
+        } else if (a.sawbladePhase === 'finishing') {
+          // Wait for trailing particles to drain, then commit the final state.
+          if (a.sawbladeParticles.length === 0) {
+            const finishSeq = a.sawbladeFinishSeq
+            a.sawbladePhase = 'idle'
+            a.sawbladeSeq = null
+            a.sawbladeFinishSeq = null
+            a.sawbladeVisualSeesaws = null
+            if (finishSeq !== null) onConsumeSawbladeRef.current(finishSeq)
           }
         }
       }
@@ -947,6 +1010,11 @@ export default function GameCanvas({
         // Show grinding sawblade during the sequential ball-clear animation.
         sawbladeGrindPos: a.sawbladePhase !== 'idle'
           ? { x: a.sawbladeImpactX, y: a.sawbladeCurrentY }
+          : undefined,
+        // Cut the ball currently being ground at the blade's bottom edge so
+        // the ball appears to be shaved down progressively as the blade descends.
+        grindCut: a.sawbladePhase === 'grind' && a.sawbladeBallsToGrind.length > 0
+          ? { ballId: a.sawbladeBallsToGrind[0].id, cutY: a.sawbladeCurrentY + BALL_RADIUS }
           : undefined,
       }
 

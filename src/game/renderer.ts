@@ -1065,6 +1065,9 @@ export interface CraneAnim {
   // When the sawblade is grinding through a stack (sequential ball-clear),
   // this is its current screen position. Drawn above balls, below particles.
   sawbladeGrindPos?: { x: number; y: number }
+  // The ball currently being ground: portion ABOVE cutY is hidden so the ball
+  // appears to be progressively shaved off the top as the blade descends.
+  grindCut?: { ballId: string; cutY: number }
 }
 
 // Particle rendered during a sawblade impact. GameCanvas integrates physics
@@ -1094,6 +1097,23 @@ export function render(
   drawBackground(ctx)
   drawCraneRail(ctx)
 
+  const grindCut = craneAnim?.grindCut
+  // Helper: if this ball is being ground, clip the canvas so only the portion
+  // BELOW cutY remains visible (= the un-cut bottom of the ball).
+  const withCut = (ballId: string, ballX: number, ballY: number, draw: () => void) => {
+    if (grindCut && grindCut.ballId === ballId) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(ballX - BALL_RADIUS - 2, grindCut.cutY, BALL_RADIUS * 2 + 4, BALL_RADIUS * 2 + 4)
+      ctx.clip()
+      draw()
+      ctx.restore()
+    } else {
+      draw()
+    }
+    void ballY
+  }
+
   for (let i = 0; i < NUM_SEESAWS; i++) {
     const sw = state.seesaws[i]
     const cx = seesawCenterX(i)
@@ -1107,11 +1127,12 @@ export function render(
     for (let j = 0; j < sw.left.length; j++) {
       const b = sw.left[j]
       const dis = dissolveAnim?.get(b.id)
-      drawBall(
-        ctx, lEnd.x, lEnd.y - BALL_RADIUS - j * BALL_SPACING,
+      const by = lEnd.y - BALL_RADIUS - j * BALL_SPACING
+      withCut(b.id, lEnd.x, by, () => drawBall(
+        ctx, lEnd.x, by,
         COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
         1, dis ? 0 : leftDanger, dis, b,
-      )
+      ))
     }
 
     // Balls on right arm
@@ -1120,11 +1141,12 @@ export function render(
     for (let j = 0; j < sw.right.length; j++) {
       const b = sw.right[j]
       const dis = dissolveAnim?.get(b.id)
-      drawBall(
-        ctx, rEnd.x, rEnd.y - BALL_RADIUS - j * BALL_SPACING,
+      const by = rEnd.y - BALL_RADIUS - j * BALL_SPACING
+      withCut(b.id, rEnd.x, by, () => drawBall(
+        ctx, rEnd.x, by,
         COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
         1, dis ? 0 : rightDanger, dis, b,
-      )
+      ))
     }
   }
 
