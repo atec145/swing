@@ -53,6 +53,8 @@ const NUM_SLOTS = NUM_SEESAWS * 2
 
 // Sawblade animation tuning (Issue #11)
 const SAWBLADE_SPIN_PER_SEC = Math.PI * 2     // 1 revolution/second base
+const SAWBLADE_BOUNCE_MS = 160                 // initial bounce before first grind
+const SAWBLADE_BOUNCE_HEIGHT = 11              // px upward displacement at peak
 const SAWBLADE_SPARK_MS = 350                  // gold sparks only, per ball
 const SAWBLADE_FRAG_MS = 180                   // colored fragments, ball removed, per ball
 const SAWBLADE_NEXTFALL_MS = 140               // blade falls to next ball
@@ -369,7 +371,7 @@ export default function GameCanvas({
     //   'nextfall' → blade drops to next ball position
     //   'sparks'   → gold sparks only (no fragments yet)
     //   'fragments'→ colored ball fragments, ball removed from visual seesaws
-    sawbladePhase: 'idle' | 'nextfall' | 'sparks' | 'fragments'
+    sawbladePhase: 'idle' | 'bounce' | 'nextfall' | 'sparks' | 'fragments'
     sawbladePhaseStartT: number
     sawbladeImpactX: number               // fixed X of the arm being cleared
     sawbladeImpactY: number               // Y where falling animation stopped
@@ -580,8 +582,7 @@ export default function GameCanvas({
     // blade lands exactly on ball #1 — start sparks immediately rather than
     // doing a 'nextfall' that would skip the first ball and target ball #2.
     a.sawbladeCurrentY = a.sawbladeImpactY
-    spawnSawbladeSparks(a.sawbladeImpactX, a.sawbladeCurrentY, a.sawbladeParticles)
-    a.sawbladePhase = 'sparks'
+    a.sawbladePhase = 'bounce'
     a.sawbladePhaseStartT = performance.now()
   }, [gameState.pendingSawblade])
 
@@ -789,7 +790,18 @@ export default function GameCanvas({
         // Sequential phase machine
         const elapsed = now - a.sawbladePhaseStartT
 
-        if (a.sawbladePhase === 'nextfall') {
+        if (a.sawbladePhase === 'bounce') {
+          // Sine arc: blade jumps up to BOUNCE_HEIGHT at t=0.5, lands back at t=1
+          const t = Math.min(1, elapsed / SAWBLADE_BOUNCE_MS)
+          a.sawbladeCurrentY = a.sawbladeImpactY - SAWBLADE_BOUNCE_HEIGHT * Math.sin(Math.PI * t)
+          if (t >= 1) {
+            a.sawbladeCurrentY = a.sawbladeImpactY
+            spawnSawbladeSparks(a.sawbladeImpactX, a.sawbladeCurrentY, a.sawbladeParticles)
+            a.sawbladePhase = 'sparks'
+            a.sawbladePhaseStartT = now
+          }
+
+        } else if (a.sawbladePhase === 'nextfall') {
           // Interpolate blade Y from prevY to nextY (easeInOut quad)
           const t = Math.min(1, elapsed / SAWBLADE_NEXTFALL_MS)
           const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
