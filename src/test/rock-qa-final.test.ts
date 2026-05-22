@@ -31,6 +31,7 @@ function stateWith(seesaws: SeesawState[], nextBall: Ball, score = 0): GameState
     hoverSeesaw: null, hoverSide: null,
     cranePositionIndex: 0,
     pendingCatapult: null, pendingMatch: null, pendingSawblade: null,
+    ballsSinceSawblade: 0, ballsSinceRock: 0,
   }
 }
 
@@ -231,7 +232,7 @@ describe('Sawblade can target empty arm with rock on opposite side', () => {
 
 describe('AC: BallKind extension is complete', () => {
   it('rock-kind ball has all required fields', () => {
-    const r = createBall(ROCK_MIN_SCORE + 100, { kind: 'rock', weight: ROCK_WEIGHT })
+    const r = createBall(ROCK_MIN_SCORE + 100, 0, 0, { kind: 'rock', weight: ROCK_WEIGHT })
     expect(r.kind).toBe('rock')
     expect(r.weight).toBe(15)
     expect(r.id).toBeTruthy()

@@ -14,8 +14,11 @@ import {
   WEIGHT_POOL,
   DIFFICULTY_TIERS,
   ROCK_MIN_SCORE,
-  ROCK_PROBABILITY,
   ROCK_WEIGHT,
+  SAWBLADE_MIN_GAP,
+  SAWBLADE_TARGET_GAP,
+  ROCK_MIN_GAP,
+  ROCK_TARGET_GAP,
 } from './constants'
 import { totalWeight, computeAngle, computeTilt } from './physics'
 
@@ -39,18 +42,26 @@ export function tierForScore(score: number) {
 // the first `activeHalfColors` entries (same unlock order as full balls);
 // when eligible it is a 50/50 full/half coin flip. Colors outside the
 // half-ball window are always full.
-// Score threshold above which the sawblade special ball may spawn, and the
-// per-roll probability. Below the threshold, sawblades never appear so early
-// gameplay stays focused on the core mechanic.
 const SAWBLADE_MIN_SCORE = 300
-const SAWBLADE_PROBABILITY = 0.035
 
-export function createBall(score = 0, override?: Partial<Ball>): Ball {
+// Returns true with linearly ramping probability: 0% below minGap, ~50% at
+// targetGap, 100% at (2*targetGap - minGap). The ramp makes spawns feel
+// random while bounding the maximum gap between appearances.
+function rampSpawn(ballsSince: number, minGap: number, targetGap: number): boolean {
+  if (ballsSince < minGap) return false
+  const range = (targetGap - minGap) * 2
+  return Math.random() < Math.min(1, (ballsSince - minGap) / range)
+}
+
+// `sawbladeSince` / `rockSince` — balls generated since each type last spawned.
+// Callers pass the current counter from GameState; defaults of 0 mean the
+// special ball is not yet due (used for initial state and tests that override kind).
+export function createBall(score = 0, sawbladeSince = 0, rockSince = 0, override?: Partial<Ball>): Ball {
   // Sawblade roll — always runs first so the dice are independent of color choice.
   if (
     !override?.kind &&
     score >= SAWBLADE_MIN_SCORE &&
-    Math.random() < SAWBLADE_PROBABILITY
+    rampSpawn(sawbladeSince, SAWBLADE_MIN_GAP, SAWBLADE_TARGET_GAP)
   ) {
     return {
       id: `b${++ballIdCounter}`,
@@ -62,13 +73,11 @@ export function createBall(score = 0, override?: Partial<Ball>): Ball {
     }
   }
 
-  // Rock roll — independent dice, runs only when the sawblade roll didn't fire.
-  // Both special balls share the same "score threshold + per-roll probability"
-  // pattern so spawn pacing stays predictable.
+  // Rock roll — runs only when the sawblade roll didn't fire.
   if (
     !override?.kind &&
     score >= ROCK_MIN_SCORE &&
-    Math.random() < ROCK_PROBABILITY
+    rampSpawn(rockSince, ROCK_MIN_GAP, ROCK_TARGET_GAP)
   ) {
     return {
       id: `b${++ballIdCounter}`,
@@ -114,10 +123,12 @@ export function createInitialState(): GameState {
     phase: 'waiting',
     hoverSeesaw: null,
     hoverSide: null,
-    cranePositionIndex: 0, // start over seesaw 0, left side
+    cranePositionIndex: 0,
     pendingCatapult: null,
     pendingMatch: null,
     pendingSawblade: null,
+    ballsSinceSawblade: 0,
+    ballsSinceRock: 0,
   }
 }
 
@@ -452,14 +463,19 @@ export function dropBall(
     const scorableCount = clearedBalls.filter(b => b.kind !== 'rock').length
     const bonus = scorableCount * 10
     const newScore = state.score + bonus
+    const newSawbladeSince = state.ballsSinceSawblade + 1
+    const newRockSince = state.ballsSinceRock + 1
+    const newQueuedBall = createBall(newScore, newSawbladeSince, newRockSince)
     return {
       state: {
         ...state,
         seesaws,
         score: newScore,
         nextBall: state.queuedBall,
-        queuedBall: createBall(newScore),
+        queuedBall: newQueuedBall,
         phase: isGameOver(seesaws) ? 'gameover' : 'waiting',
+        ballsSinceSawblade: newQueuedBall.kind === 'sawblade' ? 0 : newSawbladeSince,
+        ballsSinceRock: newQueuedBall.kind === 'rock' ? 0 : newRockSince,
       },
       catapultEvents: [],
       preCatapultSeesaws: state.seesaws,
@@ -513,6 +529,9 @@ export function dropBall(
   const matchBonus = totalRemoved > 0 ? Math.floor(totalRemoved / MATCH_MIN) * 50 + totalRemoved * 10 : 0
   const phase = isGameOver(seesaws) ? 'gameover' : 'waiting'
   const newScore = state.score + matchBonus
+  const newSawbladeSince = state.ballsSinceSawblade + 1
+  const newRockSince = state.ballsSinceRock + 1
+  const newQueuedBall = createBall(newScore, newSawbladeSince, newRockSince)
 
   return {
     state: {
@@ -520,8 +539,10 @@ export function dropBall(
       seesaws,
       score: newScore,
       nextBall: state.queuedBall,
-      queuedBall: createBall(newScore),
+      queuedBall: newQueuedBall,
       phase,
+      ballsSinceSawblade: newQueuedBall.kind === 'sawblade' ? 0 : newSawbladeSince,
+      ballsSinceRock: newQueuedBall.kind === 'rock' ? 0 : newRockSince,
     },
     catapultEvents: catapultResult.events,
     preCatapultSeesaws,

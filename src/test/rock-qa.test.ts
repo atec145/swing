@@ -31,6 +31,7 @@ function stateWith(seesaws: SeesawState[], nextBall: Ball, score = 0): GameState
     hoverSeesaw: null, hoverSide: null,
     cranePositionIndex: 0,
     pendingCatapult: null, pendingMatch: null, pendingSawblade: null,
+    ballsSinceSawblade: 0, ballsSinceRock: 0,
   }
 }
 
@@ -112,23 +113,37 @@ describe('AC: Sawblade clears rocks (rocks count as 0 points)', () => {
   })
 })
 
-describe('AC: Rock spawn gated by score threshold', () => {
-  it(`NEVER produces a rock at score < ${ROCK_MIN_SCORE}`, () => {
-    for (let i = 0; i < 2000; i++) {
-      const b = createBall(ROCK_MIN_SCORE - 1)
+describe('AC: Rock ramp-up spawn system', () => {
+  it(`NEVER produces a rock at score < ${ROCK_MIN_SCORE} regardless of counter`, () => {
+    for (let i = 0; i < 500; i++) {
+      const b = createBall(ROCK_MIN_SCORE - 1, 0, 999)
       expect(b.kind).not.toBe('rock')
     }
   })
 
-  it(`CAN produce a rock at score >= ${ROCK_MIN_SCORE}`, () => {
+  it('NEVER produces a rock below MIN_GAP even at eligible score', () => {
+    for (let i = 0; i < 29; i++) {
+      const b = createBall(ROCK_MIN_SCORE, 0, i)
+      expect(b.kind).not.toBe('rock')
+    }
+  })
+
+  it('CAN produce a rock when counter is at TARGET_GAP (ramp ~50%)', () => {
     let rocks = 0
     for (let i = 0; i < 2000; i++) {
-      const b = createBall(ROCK_MIN_SCORE)
+      const b = createBall(ROCK_MIN_SCORE, 0, 50)
       if (b.kind === 'rock') rocks++
     }
-    // ROCK_PROBABILITY ~= 0.04 → expected ~80 per 2000.
-    expect(rocks).toBeGreaterThan(20)
-    expect(rocks).toBeLessThan(200)
+    // At TARGET_GAP=50: p=50% → expect ~1000 of 2000. Allow generous noise.
+    expect(rocks).toBeGreaterThan(600)
+    expect(rocks).toBeLessThan(1400)
+  })
+
+  it('ALWAYS produces a rock when counter is past the guaranteed point', () => {
+    for (let i = 0; i < 200; i++) {
+      const b = createBall(ROCK_MIN_SCORE, 0, 70) // 2*50-30=70 → p=100%
+      expect(b.kind).toBe('rock')
+    }
   })
 })
 

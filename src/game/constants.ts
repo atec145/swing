@@ -117,9 +117,25 @@ export interface DifficultyTier {
 // immune to color matches. Only the sawblade can clear it. High weight
 // forces strategic decisions: drop it carefully or have a sawblade ready.
 // ---------------------------------------------------------------------------
-export const ROCK_MIN_SCORE = 500     // appears only after this score
-export const ROCK_PROBABILITY = 0.04  // per-ball spawn roll (independent of sawblade)
-export const ROCK_WEIGHT = 15         // full tilt physics participation
+export const ROCK_MIN_SCORE = 500  // appears only after this score
+export const ROCK_WEIGHT = 15      // full tilt physics participation
+
+// ---------------------------------------------------------------------------
+// Special-ball ramp-up spawn system
+//
+// Instead of a flat per-ball probability, each special ball type tracks how
+// many balls have been generated since the last one of that type spawned.
+// Probability is 0 below MIN_GAP, then ramps linearly to ~50% at TARGET_GAP,
+// and reaches 100% at (2 * TARGET_GAP - MIN_GAP) — so spawns are guaranteed
+// eventually but still feel random.
+//
+// Sawblade: ~every 28 balls  →  MIN_GAP=16, TARGET_GAP=28 (guaranteed by 40)
+// Rock:     ~every 50 balls  →  MIN_GAP=30, TARGET_GAP=50 (guaranteed by 70)
+// ---------------------------------------------------------------------------
+export const SAWBLADE_MIN_GAP    = 16
+export const SAWBLADE_TARGET_GAP = 28
+export const ROCK_MIN_GAP        = 30
+export const ROCK_TARGET_GAP     = 50
 
 // Earth-brown palette used by both renderer (drawRock) and particle FX
 // (rock-fragment) — kept in one place so renderer + GameCanvas stay in sync.

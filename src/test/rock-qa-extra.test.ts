@@ -37,6 +37,7 @@ function stateWith(seesaws: SeesawState[], nextBall: Ball, score = 0): GameState
     hoverSeesaw: null, hoverSide: null,
     cranePositionIndex: 0,
     pendingCatapult: null, pendingMatch: null, pendingSawblade: null,
+    ballsSinceSawblade: 0, ballsSinceRock: 0,
   }
 }
 
@@ -236,18 +237,14 @@ describe('Sawblade vs rock — comprehensive', () => {
 // 4. Spawn probability sanity
 // -----------------------------------------------------------------------------
 describe('Spawn probability behaviour', () => {
-  it('exactly at threshold (score = ROCK_MIN_SCORE) can spawn rocks', () => {
+  it('exactly at threshold (score = ROCK_MIN_SCORE) can spawn rocks when counter is due', () => {
     let rocks = 0
-    for (let i = 0; i < 5000; i++) {
-      const b = createBall(ROCK_MIN_SCORE)
+    for (let i = 0; i < 2000; i++) {
+      const b = createBall(ROCK_MIN_SCORE, 0, 50) // counter at TARGET_GAP → ~50%
       if (b.kind === 'rock') rocks++
     }
-    // Expected ~5000 * ROCK_PROBABILITY (independent of sawblade roll above
-    // ROCK_MIN_SCORE = 500, where sawblade is also enabled at 0.035).
-    // Effective rock spawn = (1 - 0.035) * 0.04 ≈ 0.0386.
-    // Expected ~193 over 5000.
-    expect(rocks).toBeGreaterThan(80)
-    expect(rocks).toBeLessThan(400)
+    expect(rocks).toBeGreaterThan(600)
+    expect(rocks).toBeLessThan(1400)
   })
 
   it('at boundary score - 1: no rocks', () => {
@@ -258,20 +255,16 @@ describe('Spawn probability behaviour', () => {
   })
 
   it('rock and sawblade are mutually exclusive in a single createBall call', () => {
-    // Sawblade roll fires first; if it succeeds, the rock roll is skipped.
-    // Sanity: spawn many balls; if any ball is both kinds simultaneously we fail.
-    // (BallKind is a string union — impossible by type. Verifies the runtime
-    // matches the type contract.)
     for (let i = 0; i < 2000; i++) {
-      const b = createBall(ROCK_MIN_SCORE + 100)
+      const b = createBall(ROCK_MIN_SCORE + 100, 40, 70) // both fully due
       expect(['normal', 'sawblade', 'rock']).toContain(b.kind)
     }
   })
 
   it('rock has weight exactly equal to ROCK_WEIGHT (15)', () => {
     let rocks = 0
-    for (let i = 0; i < 10000 && rocks < 50; i++) {
-      const b = createBall(ROCK_MIN_SCORE + 100)
+    for (let i = 0; i < 500; i++) {
+      const b = createBall(ROCK_MIN_SCORE + 100, 0, 70) // rock guaranteed
       if (b.kind === 'rock') {
         expect(b.weight).toBe(15)
         rocks++
@@ -375,7 +368,7 @@ describe('Rock identity & determinism', () => {
   it('every created rock has a unique id', () => {
     const ids = new Set<string>()
     for (let i = 0; i < 200; i++) {
-      const r = createBall(ROCK_MIN_SCORE + 100, { kind: 'rock' })
+      const r = createBall(ROCK_MIN_SCORE + 100, 0, 0, { kind: 'rock' })
       ids.add(r.id)
     }
     expect(ids.size).toBe(200)

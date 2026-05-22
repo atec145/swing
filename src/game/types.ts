@@ -104,4 +104,9 @@ export interface GameState {
     side: 'left' | 'right'
     clearedBalls: Ball[]
   } | null
+  // Ramp-up counters for special-ball spawning. Incremented each time a ball
+  // is generated; reset to 0 when that special type spawns. Used by
+  // createBall() to drive the linear ramp-up probability.
+  ballsSinceSawblade: number
+  ballsSinceRock: number
 }

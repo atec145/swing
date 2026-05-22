@@ -26,6 +26,8 @@ function stateWith(seesaws: SeesawState[], nextBall: Ball, score = 0): GameState
     pendingCatapult: null,
     pendingMatch: null,
     pendingSawblade: null,
+    ballsSinceSawblade: 0,
+    ballsSinceRock: 0,
   }
 }
 
@@ -134,23 +136,37 @@ describe('AC: Sawblade does NOT trigger match scan on its own arm', () => {
   })
 })
 
-describe('AC: Sawblade probability gated by score threshold', () => {
-  it('NEVER produces a sawblade at score 299 over many samples', () => {
-    for (let i = 0; i < 2000; i++) {
-      const b = createBall(299)
+describe('AC: Sawblade ramp-up spawn system', () => {
+  it('NEVER produces a sawblade at score 299 regardless of counter', () => {
+    for (let i = 0; i < 500; i++) {
+      const b = createBall(299, 999, 0)
       expect(b.kind).not.toBe('sawblade')
     }
   })
 
-  it('CAN produce a sawblade at score 300+ (probability check)', () => {
+  it('NEVER produces a sawblade below MIN_GAP even at eligible score', () => {
+    for (let i = 0; i < 14; i++) {
+      const b = createBall(300, i, 0)
+      expect(b.kind).not.toBe('sawblade')
+    }
+  })
+
+  it('CAN produce a sawblade when counter is at TARGET_GAP (ramp ~50%)', () => {
     let saw = 0
     for (let i = 0; i < 2000; i++) {
-      const b = createBall(300)
+      const b = createBall(300, 28, 0)
       if (b.kind === 'sawblade') saw++
     }
-    // 5% of 2000 = 100; we'd expect roughly 70-130. Assert > 30 to allow noise.
-    expect(saw).toBeGreaterThan(30)
-    expect(saw).toBeLessThan(200)
+    // At TARGET_GAP=28: p=50% → expect ~1000 of 2000. Allow generous noise.
+    expect(saw).toBeGreaterThan(600)
+    expect(saw).toBeLessThan(1400)
+  })
+
+  it('ALWAYS produces a sawblade when counter is past the guaranteed point', () => {
+    for (let i = 0; i < 200; i++) {
+      const b = createBall(300, 40, 0) // 2*28-16=40 → p=100%
+      expect(b.kind).toBe('sawblade')
+    }
   })
 })
 
