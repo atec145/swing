@@ -110,6 +110,26 @@ export interface DifficultyTier {
   activeHalfColors: number   // how many COLORS entries may also appear as half balls
 }
 
+// ---------------------------------------------------------------------------
+// Rock (Felsblock) special ball — Issue #12
+//
+// Weighted block that lands on a seesaw arm like a normal ball, but is
+// immune to color matches. Only the sawblade can clear it. High weight
+// forces strategic decisions: drop it carefully or have a sawblade ready.
+// ---------------------------------------------------------------------------
+export const ROCK_MIN_SCORE = 500     // appears only after this score
+export const ROCK_PROBABILITY = 0.04  // per-ball spawn roll (independent of sawblade)
+export const ROCK_WEIGHT = 15         // full tilt physics participation
+
+// Earth-brown palette used by both renderer (drawRock) and particle FX
+// (rock-fragment) — kept in one place so renderer + GameCanvas stay in sync.
+export const ROCK_COLORS = {
+  base:      '#8B6914',
+  highlight: '#C4952A',
+  shadow:    '#5C4A1E',
+  crack:     '#3D2B0A',
+} as const
+
 export const DIFFICULTY_TIERS: DifficultyTier[] = [
   { minScore: 0,     activeColors: 5, activeHalfColors: 0 }, // base — original-game floor
   { minScore: 400,   activeColors: 6, activeHalfColors: 0 }, // +full orange

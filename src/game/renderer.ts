@@ -3,6 +3,7 @@ import {
   NUM_SEESAWS, CW, CH, PIVOT_Y, ARM_LENGTH, BALL_RADIUS, BALL_SPACING,
   COLOR_HEX, COLOR_GLOW, SEESAW_SPACING, MARGIN_X,
   CRANE_RAIL_Y, CRANE_BODY_H, CRANE_GRIP_Y,
+  ROCK_COLORS,
 } from './constants'
 import { seesawCenterX, leftArmEnd, rightArmEnd } from './physics'
 
@@ -153,7 +154,14 @@ function drawBall(
   alpha = 1,
   dangerLevel = 0,
   dissolve?: BallDissolve,
+  ball?: Ball,
 ) {
+  // Rock: irregular brown polygon, no weight number, no dissolve animation
+  // (rocks are only ever removed by sawblades — sawblade FX handle the visuals).
+  if (ball?.kind === 'rock') {
+    drawRock(ctx, x, y, ball.id, alpha)
+    return
+  }
   // Transporter beam: phases 0-2 keep the ball fully visible (effect drawn
   // on top); phase 3 sweeps a top-down clip that erases the ball geometry;
   // phase 4 the ball is gone — only residual particles remain.
@@ -173,6 +181,112 @@ function drawBall(
     return
   }
   drawBallBody(ctx, x, y, color, glow, weight, variant, alpha, dangerLevel)
+}
+
+// Deterministic per-ID polygon — same rock always has the same silhouette.
+// Hashes the ball ID into a stable seed so the shape doesn't flicker frame to frame.
+function rockPolygon(id: string): { vertices: { x: number; y: number }[]; cracks: { x: number; y: number }[] } {
+  // Cheap string hash → seed
+  let seed = 0
+  for (let i = 0; i < id.length; i++) {
+    seed = (seed * 31 + id.charCodeAt(i)) | 0
+  }
+  const rng = () => {
+    seed = (seed * 1664525 + 1013904223) | 0
+    return ((seed >>> 0) % 10000) / 10000
+  }
+
+  const vertexCount = 7 + Math.floor(rng() * 3)  // 7..9
+  const vertices: { x: number; y: number }[] = []
+  for (let i = 0; i < vertexCount; i++) {
+    const angle = (i / vertexCount) * Math.PI * 2 + (rng() - 0.5) * 0.4
+    // Radius varies 0.78..1.06 of BALL_RADIUS for a craggy outline
+    const r = BALL_RADIUS * (0.78 + rng() * 0.28)
+    vertices.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r })
+  }
+
+  // 3..5 internal crack endpoints (from center outward). Just the end point —
+  // the line is drawn from (0,0) → here.
+  const crackCount = 3 + Math.floor(rng() * 3)
+  const cracks: { x: number; y: number }[] = []
+  for (let i = 0; i < crackCount; i++) {
+    const angle = rng() * Math.PI * 2
+    const r = BALL_RADIUS * (0.55 + rng() * 0.35)
+    cracks.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r })
+  }
+
+  return { vertices, cracks }
+}
+
+// Draws an irregular brown rock at (x, y). Deterministic per ball.id so the
+// same rock keeps its silhouette across frames.
+export function drawRock(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  ballId: string,
+  alpha = 1,
+) {
+  const { vertices, cracks } = rockPolygon(ballId)
+
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.translate(x, y)
+
+  // Drop shadow under the rock
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)'
+  ctx.shadowBlur = 10
+  ctx.shadowOffsetY = 2
+
+  // Body — radial gradient from top-left highlight to bottom-right shadow
+  const grad = ctx.createRadialGradient(
+    -BALL_RADIUS * 0.4, -BALL_RADIUS * 0.4, 2,
+    0, 0, BALL_RADIUS * 1.1,
+  )
+  grad.addColorStop(0, ROCK_COLORS.highlight)
+  grad.addColorStop(0.55, ROCK_COLORS.base)
+  grad.addColorStop(1, ROCK_COLORS.shadow)
+  ctx.fillStyle = grad
+
+  ctx.beginPath()
+  ctx.moveTo(vertices[0].x, vertices[0].y)
+  for (let i = 1; i < vertices.length; i++) {
+    ctx.lineTo(vertices[i].x, vertices[i].y)
+  }
+  ctx.closePath()
+  ctx.fill()
+
+  // Polygon outline — thin darker rim
+  ctx.shadowBlur = 0
+  ctx.shadowOffsetY = 0
+  ctx.strokeStyle = ROCK_COLORS.shadow
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+
+  // Cracks — thin dark lines radiating from center
+  ctx.strokeStyle = ROCK_COLORS.crack
+  ctx.lineWidth = 1
+  ctx.lineCap = 'round'
+  for (const c of cracks) {
+    ctx.beginPath()
+    ctx.moveTo(0, 0)
+    ctx.lineTo(c.x, c.y)
+    ctx.stroke()
+  }
+
+  // Tiny central crack node so the cracks visually connect
+  ctx.fillStyle = ROCK_COLORS.crack
+  ctx.beginPath()
+  ctx.arc(0, 0, 1.5, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Subtle upper-left specular highlight (suggests roundedness)
+  ctx.fillStyle = 'rgba(255, 235, 180, 0.18)'
+  ctx.beginPath()
+  ctx.ellipse(-BALL_RADIUS * 0.35, -BALL_RADIUS * 0.4, BALL_RADIUS * 0.35, BALL_RADIUS * 0.18, -Math.PI / 5, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.restore()
 }
 
 // Draws the rotating circular saw blade. Metallic grey body with 10 sharp
@@ -302,6 +416,33 @@ function drawSawbladeParticles(
       ctx.beginPath()
       ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2)
       ctx.fill()
+    } else if (p.type === 'rock-fragment') {
+      // Rock fragment — chunkier, more angular than colored fragments.
+      // 5-vertex irregular polygon, no glow, heavy dark outline for weight.
+      ctx.globalAlpha = alpha
+      ctx.shadowBlur = 0
+      ctx.save()
+      ctx.translate(p.x, p.y)
+      ctx.rotate(p.rotation ?? 0)
+      ctx.fillStyle = p.color
+      const w = p.size
+      ctx.beginPath()
+      ctx.moveTo(-w, -w * 0.4)
+      ctx.lineTo(w * 0.3, -w * 0.9)
+      ctx.lineTo(w * 1.0, -w * 0.1)
+      ctx.lineTo(w * 0.5, w * 0.8)
+      ctx.lineTo(-w * 0.8, w * 0.6)
+      ctx.closePath()
+      ctx.fill()
+      ctx.strokeStyle = ROCK_COLORS.crack
+      ctx.lineWidth = 1
+      ctx.stroke()
+      // Inner crack hint for chunkiness
+      ctx.beginPath()
+      ctx.moveTo(-w * 0.2, -w * 0.2)
+      ctx.lineTo(w * 0.3, w * 0.3)
+      ctx.stroke()
+      ctx.restore()
     } else {
       // Fragment — small colored chunk with thin dark outline.
       ctx.globalAlpha = alpha
@@ -695,6 +836,7 @@ function drawCrane(
         ctx, craneX, CRANE_GRIP_Y,
         COLOR_HEX[ball.color], COLOR_GLOW[ball.color],
         ball.weight, ball.variant, 1, 0,
+        undefined, ball,
       )
     }
   }
@@ -746,6 +888,7 @@ function drawCatapultBall(
     ctx, 0, 0,
     COLOR_HEX[ball.color], COLOR_GLOW[ball.color],
     ball.weight, ball.variant, alpha, 0,
+    undefined, ball,
   )
   ctx.restore()
 }
@@ -783,13 +926,15 @@ export interface CraneAnim {
 
 // Particle rendered during a sawblade impact. GameCanvas integrates physics
 // (vx/vy + gravity + life decay) every frame; renderer just paints it.
+// 'rock-fragment' shares physics with 'fragment' but uses a chunkier polygon
+// silhouette in brown tones (rock cut by sawblade).
 export interface SawbladeParticle {
   x: number
   y: number
   size: number
   color: string
   life: number          // 0..1 remaining (drives alpha + fade)
-  type: 'spark' | 'fragment'
+  type: 'spark' | 'fragment' | 'rock-fragment'
   // Velocity — used by GameCanvas for physics AND by renderer for streak direction.
   vx?: number
   vy?: number
@@ -822,7 +967,7 @@ export function render(
       drawBall(
         ctx, lEnd.x, lEnd.y - BALL_RADIUS - j * BALL_SPACING,
         COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
-        1, dis ? 0 : leftDanger, dis,
+        1, dis ? 0 : leftDanger, dis, b,
       )
     }
 
@@ -835,7 +980,7 @@ export function render(
       drawBall(
         ctx, rEnd.x, rEnd.y - BALL_RADIUS - j * BALL_SPACING,
         COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
-        1, dis ? 0 : rightDanger, dis,
+        1, dis ? 0 : rightDanger, dis, b,
       )
     }
   }
@@ -878,6 +1023,7 @@ export function render(
           ctx, fb.x, fb.y,
           COLOR_HEX[fb.ball.color], COLOR_GLOW[fb.ball.color],
           fb.ball.weight, fb.ball.variant, 1, 0,
+          undefined, fb.ball,
         )
       }
     }

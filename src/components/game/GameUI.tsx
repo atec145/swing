@@ -1,7 +1,7 @@
 'use client'
 
 import type { Ball } from '@/game/types'
-import { COLOR_HEX } from '@/game/constants'
+import { COLOR_HEX, ROCK_COLORS } from '@/game/constants'
 import { Button } from '@/components/ui/button'
 import { Trophy } from 'lucide-react'
 
@@ -79,6 +79,23 @@ function NextBallPreview({ ball }: { ball: Ball }) {
     )
   }
 
+  // Rock preview — irregular brown polygon. Static (no animation) to read
+  // as a passive hazard rather than an active threat like the sawblade.
+  if (ball.kind === 'rock') {
+    return (
+      <div
+        role="img"
+        aria-label="Next ball: rock (special, immune to matches)"
+        className="flex items-center justify-center w-10 h-10"
+        style={{
+          filter: 'drop-shadow(0 0 8px rgba(92,74,30,0.7))',
+        }}
+      >
+        <RockIcon />
+      </div>
+    )
+  }
+
   const hex = COLOR_HEX[ball.color]
   const ariaLabel = `Next ball: ${ball.variant} ${ball.color}, weight ${ball.weight}`
 
@@ -145,6 +162,50 @@ function SawbladeIcon() {
       <polygon points={pts.join(' ')} fill="#E8C25A" stroke="#7A6020" strokeWidth="0.4" />
       <circle cx="16" cy="16" r="7" fill="#C8CFDB" stroke="#3A4150" strokeWidth="0.6" />
       <circle cx="16" cy="16" r="2.4" fill="#1A1F2C" />
+    </svg>
+  )
+}
+
+// Small SVG of an irregular rock — 8-vertex polygon in brown tones with cracks.
+// Static (no spin) so it reads as a passive hazard. Mirrors drawRock() in renderer.
+function RockIcon() {
+  // Pre-computed irregular polygon — same recipe as renderer.rockPolygon,
+  // baked at module load so the preview stays stable across renders.
+  const cx = 16
+  const cy = 16
+  const verts: string[] = []
+  const vCount = 8
+  // Deterministic per-icon shape — use a fixed seed for visual stability.
+  const seed = (n: number) => {
+    const s = Math.sin(n * 12.9898) * 43758.5453
+    return s - Math.floor(s)
+  }
+  for (let i = 0; i < vCount; i++) {
+    const angle = (i / vCount) * Math.PI * 2 + (seed(i + 1) - 0.5) * 0.5
+    const r = 11 * (0.78 + seed(i + 100) * 0.28)
+    verts.push(`${cx + Math.cos(angle) * r},${cy + Math.sin(angle) * r}`)
+  }
+  return (
+    <svg viewBox="0 0 32 32" className="w-9 h-9" aria-hidden>
+      <defs>
+        <radialGradient id="rockGrad" cx="35%" cy="35%" r="70%">
+          <stop offset="0%" stopColor={ROCK_COLORS.highlight} />
+          <stop offset="55%" stopColor={ROCK_COLORS.base} />
+          <stop offset="100%" stopColor={ROCK_COLORS.shadow} />
+        </radialGradient>
+      </defs>
+      <polygon
+        points={verts.join(' ')}
+        fill="url(#rockGrad)"
+        stroke={ROCK_COLORS.shadow}
+        strokeWidth="0.8"
+      />
+      {/* Crack lines from center */}
+      <line x1={cx} y1={cy} x2={cx + 7} y2={cy - 3} stroke={ROCK_COLORS.crack} strokeWidth="0.7" strokeLinecap="round" />
+      <line x1={cx} y1={cy} x2={cx - 4} y2={cy + 6} stroke={ROCK_COLORS.crack} strokeWidth="0.7" strokeLinecap="round" />
+      <line x1={cx} y1={cy} x2={cx + 2} y2={cy + 8} stroke={ROCK_COLORS.crack} strokeWidth="0.7" strokeLinecap="round" />
+      <line x1={cx} y1={cy} x2={cx - 7} y2={cy - 4} stroke={ROCK_COLORS.crack} strokeWidth="0.7" strokeLinecap="round" />
+      <circle cx={cx} cy={cy} r="1.1" fill={ROCK_COLORS.crack} />
     </svg>
   )
 }

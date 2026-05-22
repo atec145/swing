@@ -14,9 +14,11 @@ export type Color =
 export type Variant = 'full' | 'half'
 
 // Ball category — most balls are 'normal' (standard match mechanics).
-// Special balls like 'sawblade' bypass weight physics and trigger custom effects.
+// Special balls bypass match mechanics and / or weight physics:
+//   - 'sawblade': weight 0, clears whole arm on landing
+//   - 'rock'    : weight 15, never matches; only sawblades can remove it
 // The optional field keeps existing code working: missing/undefined == 'normal'.
-export type BallKind = 'normal' | 'sawblade'
+export type BallKind = 'normal' | 'sawblade' | 'rock'
 
 export interface Ball {
   id: string

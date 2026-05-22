@@ -30,6 +30,7 @@ import {
   ARM_LENGTH,
   NUM_SEESAWS,
   COLOR_HEX,
+  ROCK_COLORS,
 } from '@/game/constants'
 
 interface Props {
@@ -136,6 +137,34 @@ function spawnSawbladeFragments(x: number, y: number, ball: Ball, particles: Saw
       vx: Math.cos(ang) * speed,
       vy: Math.sin(ang) * speed,
     })
+  }
+}
+
+// Spawns rock-fragment particles when the sawblade shatters a rock.
+// Fewer (3-5) but larger chunks, brown palette, longer life, arced trajectory.
+const ROCK_FRAG_MIN = 3
+const ROCK_FRAG_MAX = 5
+function spawnRockFragments(x: number, y: number, particles: SawbladeParticle[]) {
+  const palette = [ROCK_COLORS.base, ROCK_COLORS.highlight, ROCK_COLORS.shadow]
+  const count = ROCK_FRAG_MIN + Math.floor(Math.random() * (ROCK_FRAG_MAX - ROCK_FRAG_MIN + 1))
+  for (let i = 0; i < count; i++) {
+    // Symmetric upward fan — chunks fly off both sides and up.
+    const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.4
+    const speed = 3 + Math.random() * 4
+    particles.push({
+      x: x + (Math.random() - 0.5) * 14,
+      y: y + (Math.random() - 0.5) * 10,
+      size: 7 + Math.random() * 5,
+      color: palette[Math.floor(Math.random() * palette.length)],
+      life: 0.7,  // ~420ms at lifeDecay=1/36 — matches spec's 400ms target
+      type: 'rock-fragment',
+      rotation: Math.random() * Math.PI * 2,
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed,
+    })
+    // Store spin via the rotation-scratch field used by the physics tick.
+    ;(particles[particles.length - 1] as SawbladeParticle & { spin?: number }).spin =
+      (Math.random() - 0.5) * 0.3
   }
 }
 
@@ -774,10 +803,14 @@ export default function GameCanvas({
 
         } else if (a.sawbladePhase === 'sparks') {
           if (elapsed >= SAWBLADE_SPARK_MS) {
-            // Cut the current top ball
+            // Cut the current top ball — dispatch particles on ball kind.
             const ball = a.sawbladeBallsToGrind[0]
             if (ball) {
-              spawnSawbladeFragments(a.sawbladeImpactX, a.sawbladeCurrentY, ball, a.sawbladeParticles)
+              if (ball.kind === 'rock') {
+                spawnRockFragments(a.sawbladeImpactX, a.sawbladeCurrentY, a.sawbladeParticles)
+              } else {
+                spawnSawbladeFragments(a.sawbladeImpactX, a.sawbladeCurrentY, ball, a.sawbladeParticles)
+              }
               // Remove top ball from the visual board
               if (a.sawbladeVisualSeesaws) {
                 const arm = a.sawbladeVisualSeesaws[a.sawbladeSeesawIdx][a.sawbladeSideAnim]

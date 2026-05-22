@@ -13,6 +13,9 @@ import {
   COLORS,
   WEIGHT_POOL,
   DIFFICULTY_TIERS,
+  ROCK_MIN_SCORE,
+  ROCK_PROBABILITY,
+  ROCK_WEIGHT,
 } from './constants'
 import { totalWeight, computeAngle, computeTilt } from './physics'
 
@@ -59,6 +62,24 @@ export function createBall(score = 0, override?: Partial<Ball>): Ball {
     }
   }
 
+  // Rock roll — independent dice, runs only when the sawblade roll didn't fire.
+  // Both special balls share the same "score threshold + per-roll probability"
+  // pattern so spawn pacing stays predictable.
+  if (
+    !override?.kind &&
+    score >= ROCK_MIN_SCORE &&
+    Math.random() < ROCK_PROBABILITY
+  ) {
+    return {
+      id: `b${++ballIdCounter}`,
+      color: 'green',       // dummy — renderer dispatches on kind, never color
+      variant: 'full',      // dummy
+      weight: ROCK_WEIGHT,  // heavy: tilts the seesaw aggressively
+      kind: 'rock',
+      ...override,
+    }
+  }
+
   const tier = tierForScore(score)
   const colorIndex = Math.floor(Math.random() * tier.activeColors)
   const color = COLORS[colorIndex]
@@ -101,7 +122,11 @@ export function createInitialState(): GameState {
 }
 
 // Match key combines color and variant — full-red and half-red NEVER match.
+// Special balls (rock, sawblade) get a unique key per instance so they never
+// chain with anything — including each other — in either the horizontal scan
+// or the vertical-expansion pass.
 function matchKey(b: Ball): string {
+  if (b.kind && b.kind !== 'normal') return `__special:${b.kind}:${b.id}`
   return `${b.color}:${b.variant}`
 }
 
@@ -285,7 +310,12 @@ function findMatches(seesaws: SeesawState[]): Set<string> {
   function getBallAtLevel(sw: SeesawState, side: 'left' | 'right', L: number): Ball | null {
     const k = L - armOffset(sw.angle, side)
     if (k < 0 || k >= sw[side].length) return null
-    return sw[side][k]
+    const b = sw[side][k]
+    // Rocks act as visual gaps for match scanning: a row like
+    //   red — rock — red — red
+    // breaks at the rock and never produces a match.
+    if (b.kind === 'rock') return null
+    return b
   }
 
   let minLevel = 0
@@ -417,8 +447,10 @@ export function dropBall(
     const seesaws = state.seesaws.map((s, i) =>
       i === seesawIndex ? makeSeesawFrom(newLeft, newRight) : s,
     )
-    // Score: 10 points per cleared ball (matches normal match per-ball value).
-    const bonus = clearedBalls.length * 10
+    // Score: 10 points per cleared NORMAL ball. Rocks count 0 — they are
+    // hazards, not scoring tokens; cutting them is its own reward.
+    const scorableCount = clearedBalls.filter(b => b.kind !== 'rock').length
+    const bonus = scorableCount * 10
     const newScore = state.score + bonus
     return {
       state: {
