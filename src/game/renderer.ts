@@ -185,37 +185,89 @@ function drawBall(
 
 // Deterministic per-ID polygon — same rock always has the same silhouette.
 // Hashes the ball ID into a stable seed so the shape doesn't flicker frame to frame.
-function rockPolygon(id: string): { vertices: { x: number; y: number }[]; cracks: { x: number; y: number }[] } {
-  // Cheap string hash → seed
+interface RockGeometry {
+  vertices: { x: number; y: number }[]
+  facet: { x: number; y: number }[]
+  cracks: { angle: number; len: number; startFrac: number; branch?: { angle: number; len: number; startFrac: number } }[]
+  pits: { x: number; y: number; r: number }[]
+  veins: { x1: number; y1: number; x2: number; y2: number }[]
+}
+
+function rockPolygon(id: string): RockGeometry {
   let seed = 0
-  for (let i = 0; i < id.length; i++) {
-    seed = (seed * 31 + id.charCodeAt(i)) | 0
-  }
+  for (let i = 0; i < id.length; i++) seed = (seed * 31 + id.charCodeAt(i)) | 0
   const rng = () => {
     seed = (seed * 1664525 + 1013904223) | 0
     return ((seed >>> 0) % 10000) / 10000
   }
+  const R = BALL_RADIUS
 
-  const vertexCount = 7 + Math.floor(rng() * 3)  // 7..9
+  // Outer silhouette: 11-14 vertices with aggressive jitter + occasional notches
+  const vertexCount = 11 + Math.floor(rng() * 4)
   const vertices: { x: number; y: number }[] = []
   for (let i = 0; i < vertexCount; i++) {
-    const angle = (i / vertexCount) * Math.PI * 2 + (rng() - 0.5) * 0.4
-    // Radius varies 0.78..1.06 of BALL_RADIUS for a craggy outline
-    const r = BALL_RADIUS * (0.78 + rng() * 0.28)
-    vertices.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r })
+    const baseAngle = (i / vertexCount) * Math.PI * 2
+    const jitter = (rng() - 0.5) * 0.7
+    const notch = rng() < 0.22
+    const r = notch ? R * (0.52 + rng() * 0.1) : R * (0.8 + rng() * 0.24)
+    vertices.push({ x: Math.cos(baseAngle + jitter) * r, y: Math.sin(baseAngle + jitter) * r })
   }
 
-  // 3..5 internal crack endpoints (from center outward). Just the end point —
-  // the line is drawn from (0,0) → here.
-  const crackCount = 3 + Math.floor(rng() * 3)
-  const cracks: { x: number; y: number }[] = []
+  // Inner facet polygon — a lighter face plane offset toward the light source
+  const facetCount = 5 + Math.floor(rng() * 3)
+  const facet: { x: number; y: number }[] = []
+  const fOx = R * 0.1 * (rng() - 0.3)
+  const fOy = R * 0.1 * (rng() - 0.4)
+  for (let i = 0; i < facetCount; i++) {
+    const a = (i / facetCount) * Math.PI * 2 + rng() * 0.6
+    const r = R * (0.28 + rng() * 0.22)
+    facet.push({ x: fOx + Math.cos(a) * r, y: fOy + Math.sin(a) * r })
+  }
+
+  // Cracks: start partway from center, optional branching
+  const crackCount = 4 + Math.floor(rng() * 4)
+  const cracks: RockGeometry['cracks'] = []
   for (let i = 0; i < crackCount; i++) {
     const angle = rng() * Math.PI * 2
-    const r = BALL_RADIUS * (0.55 + rng() * 0.35)
-    cracks.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r })
+    const len = R * (0.38 + rng() * 0.5)
+    const startFrac = 0.08 + rng() * 0.2
+    const hasBranch = rng() < 0.55
+    cracks.push({
+      angle, len, startFrac,
+      branch: hasBranch ? {
+        angle: angle + (rng() - 0.5) * 1.4,
+        len: len * (0.25 + rng() * 0.35),
+        startFrac: 0.35 + rng() * 0.4,
+      } : undefined,
+    })
   }
 
-  return { vertices, cracks }
+  // Surface pits: mineral inclusions and pockmarks
+  const pitCount = 8 + Math.floor(rng() * 7)
+  const pits: RockGeometry['pits'] = []
+  for (let i = 0; i < pitCount; i++) {
+    const a = rng() * Math.PI * 2
+    const d = R * (0.1 + rng() * 0.68)
+    pits.push({ x: Math.cos(a) * d, y: Math.sin(a) * d, r: 0.8 + rng() * 2.8 })
+  }
+
+  // Mineral veins: 1-3 bright thin streaks (quartz, feldspar)
+  const veinCount = 1 + Math.floor(rng() * 3)
+  const veins: RockGeometry['veins'] = []
+  for (let i = 0; i < veinCount; i++) {
+    const a = rng() * Math.PI * 2
+    const len = R * (0.25 + rng() * 0.45)
+    const s = R * (0.05 + rng() * 0.35)
+    const spread = (rng() - 0.5) * 1.0
+    veins.push({
+      x1: Math.cos(a + spread) * s,
+      y1: Math.sin(a + spread) * s,
+      x2: Math.cos(a) * (s + len),
+      y2: Math.sin(a) * (s + len),
+    })
+  }
+
+  return { vertices, facet, cracks, pits, veins }
 }
 
 // Draws an irregular brown rock at (x, y). Deterministic per ball.id so the
@@ -227,63 +279,154 @@ export function drawRock(
   ballId: string,
   alpha = 1,
 ) {
-  const { vertices, cracks } = rockPolygon(ballId)
+  const { vertices, facet, cracks, pits, veins } = rockPolygon(ballId)
+  const R = BALL_RADIUS
+
+  const polyPath = (verts: { x: number; y: number }[]) => {
+    ctx.beginPath()
+    ctx.moveTo(verts[0].x, verts[0].y)
+    for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y)
+    ctx.closePath()
+  }
 
   ctx.save()
   ctx.globalAlpha = alpha
   ctx.translate(x, y)
 
-  // Drop shadow under the rock
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)'
-  ctx.shadowBlur = 10
-  ctx.shadowOffsetY = 2
+  // ── 1. Drop shadow ────────────────────────────────────────────────────────
+  ctx.shadowColor = 'rgba(0,0,0,0.65)'
+  ctx.shadowBlur = 14
+  ctx.shadowOffsetY = 3
 
-  // Body — radial gradient from top-left highlight to bottom-right shadow
-  const grad = ctx.createRadialGradient(
-    -BALL_RADIUS * 0.4, -BALL_RADIUS * 0.4, 2,
-    0, 0, BALL_RADIUS * 1.1,
-  )
-  grad.addColorStop(0, ROCK_COLORS.highlight)
-  grad.addColorStop(0.55, ROCK_COLORS.base)
-  grad.addColorStop(1, ROCK_COLORS.shadow)
-  ctx.fillStyle = grad
-
-  ctx.beginPath()
-  ctx.moveTo(vertices[0].x, vertices[0].y)
-  for (let i = 1; i < vertices.length; i++) {
-    ctx.lineTo(vertices[i].x, vertices[i].y)
-  }
-  ctx.closePath()
+  // ── 2. Base body — 6-stop gradient: warm highlight → cool grey mid → deep shadow
+  const body = ctx.createRadialGradient(-R * 0.32, -R * 0.38, R * 0.04, R * 0.08, R * 0.1, R * 1.25)
+  body.addColorStop(0,    '#E8C878')   // pale sunlit top
+  body.addColorStop(0.14, '#C49535')   // warm gold
+  body.addColorStop(0.35, '#967230')   // mid ochre
+  body.addColorStop(0.55, '#7A5C1E')   // base brown
+  body.addColorStop(0.75, '#4E3C12')   // cool dark brown
+  body.addColorStop(1,    '#261A06')   // near-black pit
+  ctx.fillStyle = body
+  polyPath(vertices)
   ctx.fill()
 
-  // Polygon outline — thin darker rim
   ctx.shadowBlur = 0
   ctx.shadowOffsetY = 0
-  ctx.strokeStyle = ROCK_COLORS.shadow
-  ctx.lineWidth = 1.5
-  ctx.stroke()
 
-  // Cracks — thin dark lines radiating from center
-  ctx.strokeStyle = ROCK_COLORS.crack
-  ctx.lineWidth = 1
-  ctx.lineCap = 'round'
-  for (const c of cracks) {
-    ctx.beginPath()
-    ctx.moveTo(0, 0)
-    ctx.lineTo(c.x, c.y)
-    ctx.stroke()
-  }
+  // ── 3. Clip all further drawing to the rock silhouette ─────────────────────
+  polyPath(vertices)
+  ctx.clip()
 
-  // Tiny central crack node so the cracks visually connect
-  ctx.fillStyle = ROCK_COLORS.crack
-  ctx.beginPath()
-  ctx.arc(0, 0, 1.5, 0, Math.PI * 2)
+  // ── 4. Grey-tone overlay on shadowed side (cooler stone feel) ─────────────
+  const coolSide = ctx.createRadialGradient(R * 0.35, R * 0.3, 0, R * 0.35, R * 0.3, R * 1.1)
+  coolSide.addColorStop(0,   'rgba(90,85,75,0.52)')
+  coolSide.addColorStop(0.5, 'rgba(70,65,55,0.25)')
+  coolSide.addColorStop(1,   'rgba(50,45,35,0)')
+  ctx.fillStyle = coolSide
+  polyPath(vertices)
   ctx.fill()
 
-  // Subtle upper-left specular highlight (suggests roundedness)
-  ctx.fillStyle = 'rgba(255, 235, 180, 0.18)'
+  // ── 5. Inner facet — lighter plane facing the light source ─────────────────
+  const facetGrad = ctx.createRadialGradient(-R * 0.18, -R * 0.22, 0, -R * 0.1, -R * 0.1, R * 0.55)
+  facetGrad.addColorStop(0,   'rgba(210,175,90,0.42)')
+  facetGrad.addColorStop(0.6, 'rgba(160,120,50,0.18)')
+  facetGrad.addColorStop(1,   'rgba(100,75,20,0)')
+  ctx.fillStyle = facetGrad
+  polyPath(facet)
+  ctx.fill()
+
+  // ── 6. Rim vignette — darken the very edge ────────────────────────────────
+  const rim = ctx.createRadialGradient(0, 0, R * 0.5, 0, 0, R * 1.15)
+  rim.addColorStop(0, 'rgba(0,0,0,0)')
+  rim.addColorStop(1, 'rgba(0,0,0,0.5)')
+  ctx.fillStyle = rim
+  polyPath(vertices)
+  ctx.fill()
+
+  // ── 7. Surface pits (mineral inclusions, pockmarks) ───────────────────────
+  for (const pit of pits) {
+    const pg = ctx.createRadialGradient(
+      pit.x - pit.r * 0.3, pit.y - pit.r * 0.3, 0,
+      pit.x, pit.y, pit.r * 1.5,
+    )
+    pg.addColorStop(0,   'rgba(25,15,0,0.75)')
+    pg.addColorStop(0.5, 'rgba(25,15,0,0.35)')
+    pg.addColorStop(1,   'rgba(25,15,0,0)')
+    ctx.fillStyle = pg
+    ctx.beginPath()
+    ctx.arc(pit.x, pit.y, pit.r * 1.5, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // ── 8. Cracks with branching ───────────────────────────────────────────────
+  ctx.lineCap = 'round'
+  for (const c of cracks) {
+    const sx = Math.cos(c.angle) * c.len * c.startFrac
+    const sy = Math.sin(c.angle) * c.len * c.startFrac
+    const ex = Math.cos(c.angle) * c.len
+    const ey = Math.sin(c.angle) * c.len
+
+    // Dark crack body
+    ctx.strokeStyle = ROCK_COLORS.crack
+    ctx.lineWidth = 1.3
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke()
+
+    // Slight warm highlight along one side (depth illusion)
+    ctx.strokeStyle = 'rgba(185,145,55,0.22)'
+    ctx.lineWidth = 0.7
+    ctx.beginPath(); ctx.moveTo(sx + 0.7, sy + 0.5); ctx.lineTo(ex + 0.7, ey + 0.5); ctx.stroke()
+
+    if (c.branch) {
+      const bx = Math.cos(c.angle) * c.len * c.branch.startFrac
+      const by = Math.sin(c.angle) * c.len * c.branch.startFrac
+      ctx.strokeStyle = ROCK_COLORS.crack
+      ctx.lineWidth = 0.75
+      ctx.beginPath()
+      ctx.moveTo(bx, by)
+      ctx.lineTo(bx + Math.cos(c.branch.angle) * c.branch.len, by + Math.sin(c.branch.angle) * c.branch.len)
+      ctx.stroke()
+    }
+  }
+
+  // ── 9. Mineral veins (quartz / feldspar streaks) ──────────────────────────
+  ctx.lineCap = 'round'
+  for (const v of veins) {
+    ctx.strokeStyle = 'rgba(225,200,140,0.38)'
+    ctx.lineWidth = 1.1
+    ctx.beginPath(); ctx.moveTo(v.x1, v.y1); ctx.lineTo(v.x2, v.y2); ctx.stroke()
+    // thin bright core
+    ctx.strokeStyle = 'rgba(255,240,195,0.22)'
+    ctx.lineWidth = 0.45
+    ctx.beginPath(); ctx.moveTo(v.x1, v.y1); ctx.lineTo(v.x2, v.y2); ctx.stroke()
+  }
+
+  // ── 10. Polygon outline ────────────────────────────────────────────────────
+  ctx.restore()   // pop clip before stroking the outline so it's fully visible
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.translate(x, y)
+  ctx.strokeStyle = '#1E1005'
+  ctx.lineWidth = 1.8
+  polyPath(vertices)
+  ctx.stroke()
+
+  // ── 11. Primary specular highlight ────────────────────────────────────────
+  const hl1 = ctx.createRadialGradient(-R * 0.36, -R * 0.4, 0, -R * 0.3, -R * 0.32, R * 0.3)
+  hl1.addColorStop(0,   'rgba(255,245,200,0.65)')
+  hl1.addColorStop(0.5, 'rgba(255,240,180,0.2)')
+  hl1.addColorStop(1,   'rgba(255,235,170,0)')
+  ctx.fillStyle = hl1
   ctx.beginPath()
-  ctx.ellipse(-BALL_RADIUS * 0.35, -BALL_RADIUS * 0.4, BALL_RADIUS * 0.35, BALL_RADIUS * 0.18, -Math.PI / 5, 0, Math.PI * 2)
+  ctx.ellipse(-R * 0.36, -R * 0.4, R * 0.3, R * 0.17, -Math.PI / 5, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Secondary micro-specular (different facet catching light)
+  const hl2 = ctx.createRadialGradient(-R * 0.05, -R * 0.08, 0, -R * 0.05, -R * 0.08, R * 0.12)
+  hl2.addColorStop(0,   'rgba(255,250,220,0.45)')
+  hl2.addColorStop(1,   'rgba(255,250,220,0)')
+  ctx.fillStyle = hl2
+  ctx.beginPath()
+  ctx.arc(-R * 0.05, -R * 0.08, R * 0.12, 0, Math.PI * 2)
   ctx.fill()
 
   ctx.restore()
