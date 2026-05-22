@@ -52,12 +52,11 @@ const NUM_SLOTS = NUM_SEESAWS * 2
 
 // Sawblade animation tuning (Issue #11)
 const SAWBLADE_SPIN_PER_SEC = Math.PI * 2     // 1 revolution/second base
-const SAWBLADE_GRIND_BOOST = Math.PI * 8      // extra angular velocity while grinding sparks
-const SAWBLADE_SPARK_MS = 220                  // gold sparks only, per ball
-const SAWBLADE_FRAG_MS = 160                   // colored fragments, ball removed, per ball
-const SAWBLADE_NEXTFALL_MS = 100               // blade falls to next ball
-const SPARK_COUNT = 28                         // particles per ball impact
-const FRAG_PER_BALL = 5                        // fragment particles per cleared ball
+const SAWBLADE_SPARK_MS = 350                  // gold sparks only, per ball
+const SAWBLADE_FRAG_MS = 180                   // colored fragments, ball removed, per ball
+const SAWBLADE_NEXTFALL_MS = 140               // blade falls to next ball
+const SPARK_COUNT = 55                         // particles per ball impact
+const FRAG_PER_BALL = 6                        // fragment particles per cleared ball
 
 // Catapult animation tuning (see Issue #3 tech design).
 const MS_PER_SLOT = 300
@@ -96,21 +95,25 @@ interface FlightSegment {
   fade: 'in' | 'out' | 'none'
 }
 
-// Spawns a burst of golden sparks at (x, y). Velocities fan out radially
-// with a slight upward bias — grinding-wheel look. Lifetime ~300ms.
+// Spawns a burst of golden sparks at (x, y). Fan is side-biased (like a
+// grinding wheel): most sparks shoot left/right and upward, few go straight down.
 function spawnSawbladeSparks(x: number, y: number, particles: SawbladeParticle[]) {
   for (let i = 0; i < SPARK_COUNT; i++) {
-    const ang = (i / SPARK_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.5
-    const speed = 3 + Math.random() * 4
+    // Restrict fan: -160° to +160° (skip straight-down sector of ±20°)
+    const sectorFrac = i / SPARK_COUNT
+    const ang = -Math.PI + sectorFrac * Math.PI * 2 * (160 / 180) * 2
+      - Math.PI * (160 / 180) + (Math.random() - 0.5) * 0.6
+    const speed = 4 + Math.random() * 6
+    const isBright = Math.random() < 0.5
     particles.push({
-      x,
-      y,
-      size: 2 + Math.random() * 2,
-      color: Math.random() < 0.6 ? '#FFD700' : '#FFA500',
+      x: x + (Math.random() - 0.5) * 6,
+      y: y + (Math.random() - 0.5) * 4,
+      size: 3.5 + Math.random() * 4,
+      color: isBright ? '#FFEE44' : (Math.random() < 0.5 ? '#FFD700' : '#FF9900'),
       life: 1,
       type: 'spark',
       vx: Math.cos(ang) * speed,
-      vy: Math.sin(ang) * speed - 1.8,
+      vy: Math.sin(ang) * speed - 2.5,
     })
   }
 }
@@ -119,14 +122,15 @@ function spawnSawbladeSparks(x: number, y: number, particles: SawbladeParticle[]
 function spawnSawbladeFragments(x: number, y: number, ball: Ball, particles: SawbladeParticle[]) {
   const hex = COLOR_HEX[ball.color]
   for (let i = 0; i < FRAG_PER_BALL; i++) {
-    const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.8
-    const speed = 3.5 + Math.random() * 4.5
+    // Fan upward and to the sides — fragments fly away from the cut point.
+    const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.6
+    const speed = 4 + Math.random() * 5
     particles.push({
-      x: x + (Math.random() - 0.5) * 14,
-      y: y + (Math.random() - 0.5) * 8,
-      size: 3 + Math.random() * 2.5,
+      x: x + (Math.random() - 0.5) * 18,
+      y: y + (Math.random() - 0.5) * 12,
+      size: 5 + Math.random() * 4,
       color: hex,
-      life: 1,
+      life: 0.85,  // fragments fade faster so sparks remain dominant
       type: 'fragment',
       rotation: Math.random() * Math.PI * 2,
       vx: Math.cos(ang) * speed,
@@ -542,19 +546,13 @@ export default function GameCanvas({
     const visualArm = a.sawbladeVisualSeesaws[pending.seesawIndex][pending.side]
     for (const b of pending.clearedBalls) visualArm.push(b)  // re-add bottom-to-top
 
-    // Blade starts at sawbladeImpactY (where falling animation stopped), then
-    // drops one BALL_SPACING to reach the topmost ball in a brief 'nextfall'.
+    // Due to the MAX_ANGLE = asin(BALL_SPACING/ARM_LENGTH) geometry, impactY
+    // equals the top ball's center Y in the visual (balanced) seesaws. The
+    // blade lands exactly on ball #1 — start sparks immediately rather than
+    // doing a 'nextfall' that would skip the first ball and target ball #2.
     a.sawbladeCurrentY = a.sawbladeImpactY
-    if (a.sawbladeBallsToGrind.length > 0) {
-      a.sawbladePrevY = a.sawbladeImpactY
-      a.sawbladeNextY = a.sawbladeImpactY + BALL_SPACING
-      a.sawbladePhase = 'nextfall'
-    } else {
-      // Empty arm — just a brief spark effect
-      a.sawbladeNextY = a.sawbladeImpactY
-      spawnSawbladeSparks(a.sawbladeImpactX, a.sawbladeImpactY, a.sawbladeParticles)
-      a.sawbladePhase = 'sparks'
-    }
+    spawnSawbladeSparks(a.sawbladeImpactX, a.sawbladeCurrentY, a.sawbladeParticles)
+    a.sawbladePhase = 'sparks'
     a.sawbladePhaseStartT = performance.now()
   }, [gameState.pendingSawblade])
 
@@ -713,15 +711,25 @@ export default function GameCanvas({
         }
       }
 
-      // Continuous sawblade rotation. Runs every frame so a sawblade in the
-      // crane spins while waiting for input. Acceleration during the
-      // 'sparks' phase makes the impact feel like grinding.
+      // Continuous sawblade rotation. Blade decelerates on ball contact (resistance),
+      // then accelerates as it cuts through, then spins freely while falling to the next.
       {
         const dt = a.sawbladeLastTickT === 0 ? 16 : Math.min(64, now - a.sawbladeLastTickT)
         a.sawbladeLastTickT = now
-        // Blade spins faster while cutting (sparks phase only)
-        const boost = a.sawbladePhase === 'sparks' ? SAWBLADE_GRIND_BOOST : 0
-        a.sawbladeRotation += (SAWBLADE_SPIN_PER_SEC + boost) * (dt / 1000)
+        let spinRate = SAWBLADE_SPIN_PER_SEC
+        if (a.sawbladePhase === 'nextfall') {
+          // Blade falling freely — spins fast
+          spinRate = SAWBLADE_SPIN_PER_SEC * 3
+        } else if (a.sawbladePhase === 'sparks') {
+          const t = Math.min(1, (now - a.sawbladePhaseStartT) / SAWBLADE_SPARK_MS)
+          // First 35%: resistance slows the blade. Last 65%: blade cuts through, speeds up.
+          spinRate = t < 0.35
+            ? SAWBLADE_SPIN_PER_SEC * (1 - 0.75 * (t / 0.35))   // 1x → 0.25x
+            : SAWBLADE_SPIN_PER_SEC * (0.25 + 4.75 * ((t - 0.35) / 0.65))  // 0.25x → 5x
+        } else if (a.sawbladePhase === 'fragments') {
+          spinRate = SAWBLADE_SPIN_PER_SEC * 4  // ball just shattered — blade at full speed
+        }
+        a.sawbladeRotation += spinRate * (dt / 1000)
       }
 
       // Sawblade particle physics + sequential per-ball phase advancement
