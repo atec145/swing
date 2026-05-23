@@ -143,7 +143,7 @@ function glowComponents(glow: string): [number, number, number] {
   return [200, 220, 255]
 }
 
-function drawBall(
+export function drawBall(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,

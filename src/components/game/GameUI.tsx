@@ -1,7 +1,9 @@
 'use client'
 
+import { useRef, useEffect } from 'react'
 import type { Ball } from '@/game/types'
-import { COLOR_HEX, ROCK_COLORS, BLITZ_COLORS } from '@/game/constants'
+import { COLOR_HEX, COLOR_GLOW } from '@/game/constants'
+import { drawBall, drawBlitz, drawRock, drawSawblade } from '@/game/renderer'
 import { Button } from '@/components/ui/button'
 import { Trophy } from 'lucide-react'
 
@@ -60,207 +62,57 @@ export default function GameUI({ score, nextBall, phase, onRestart, onShowHighsc
   )
 }
 
+// Renders the next ball using the real canvas draw functions so it looks
+// identical to what appears in the crane and on the seesaws.
 function NextBallPreview({ ball }: { ball: Ball }) {
-  // Sawblade preview — small SVG icon hinting at the special ball.
-  if (ball.kind === 'sawblade') {
-    return (
-      <div
-        role="img"
-        aria-label="Next ball: sawblade (special)"
-        className="flex items-center justify-center rounded-full w-10 h-10 shadow-lg animate-spin"
-        style={{
-          background: 'radial-gradient(circle at 35% 35%, #F0F4FB, #5A6271)',
-          boxShadow: '0 0 14px 3px rgba(255,200,60,0.55)',
-          animationDuration: '1.4s',
-        }}
-      >
-        <SawbladeIcon />
-      </div>
-    )
-  }
+  const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  // Blitz preview — plasma ball with static lightning arcs and pulse animation.
-  if (ball.kind === 'blitz') {
-    return (
-      <div
-        role="img"
-        aria-label="Next ball: blitz (clears matching color)"
-        className="flex items-center justify-center w-10 h-10 animate-pulse"
-        style={{
-          filter: `drop-shadow(0 0 8px ${BLITZ_COLORS.aura})`,
-          animationDuration: '1.6s',
-        }}
-      >
-        <BlitzIcon weight={ball.weight} />
-      </div>
-    )
-  }
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
 
-  // Rock preview — irregular brown polygon. Static (no animation) to read
-  // as a passive hazard rather than an active threat like the sawblade.
-  if (ball.kind === 'rock') {
-    return (
-      <div
-        role="img"
-        aria-label="Next ball: rock (special, immune to matches)"
-        className="flex items-center justify-center w-10 h-10"
-        style={{
-          filter: 'drop-shadow(0 0 8px rgba(92,74,30,0.7))',
-        }}
-      >
-        <RockIcon />
-      </div>
-    )
-  }
+    const SIZE = 56
+    const cx = SIZE / 2
+    const cy = SIZE / 2
+    let rafId = 0
+    const start = performance.now()
 
-  const hex = COLOR_HEX[ball.color]
-  const ariaLabel = `Next ball: ${ball.variant} ${ball.color}, weight ${ball.weight}`
+    const frame = (ts: number) => {
+      ctx.clearRect(0, 0, SIZE, SIZE)
 
-  if (ball.variant === 'full') {
-    return (
-      <div
-        role="img"
-        aria-label={ariaLabel}
-        className="flex items-center justify-center rounded-full font-bold text-white text-sm shadow-lg w-10 h-10"
-        style={{
-          background: `radial-gradient(circle at 35% 35%, ${lighten(hex)}, ${hex})`,
-          boxShadow: `0 0 14px 3px ${hex}66`,
-        }}
-      >
-        {ball.weight}
-      </div>
-    )
-  }
+      if (ball.kind === 'blitz') {
+        const t = ((ts - start) % 2000) / 2000
+        drawBlitz(ctx, cx, cy, t, ball.weight, 1, ball.charged !== false)
+        rafId = requestAnimationFrame(frame)
+      } else if (ball.kind === 'sawblade') {
+        const rotation = ((ts - start) / 1400) * Math.PI * 2
+        drawSawblade(ctx, cx, cy, rotation)
+        rafId = requestAnimationFrame(frame)
+      } else if (ball.kind === 'rock') {
+        drawRock(ctx, cx, cy, ball.id)
+      } else {
+        drawBall(ctx, cx, cy, COLOR_HEX[ball.color], COLOR_GLOW[ball.color], ball.weight, ball.variant, 1, 0, undefined, ball)
+      }
+    }
 
-  // Half / striped ball: white base with colored equatorial band
+    rafId = requestAnimationFrame(frame)
+    return () => cancelAnimationFrame(rafId)
+  }, [ball])
+
+  const kind = ball.kind ?? 'normal'
+  const ariaLabel = kind === 'normal'
+    ? `Next ball: ${ball.variant} ${ball.color}, weight ${ball.weight}`
+    : `Next ball: ${kind}`
+
   return (
-    <div
-      role="img"
+    <canvas
+      ref={canvasRef}
+      width={56}
+      height={56}
       aria-label={ariaLabel}
-      className="relative flex items-center justify-center rounded-full font-bold text-slate-900 text-sm shadow-lg w-10 h-10 overflow-hidden bg-white border border-slate-300"
-      style={{
-        background: 'radial-gradient(circle at 35% 35%, #ffffff, #c8cdd6)',
-        boxShadow: `0 0 14px 3px ${hex}66`,
-      }}
-    >
-      <span
-        aria-hidden
-        className="absolute left-0 right-0 h-[55%]"
-        style={{
-          top: '50%',
-          transform: 'translateY(-50%)',
-          background: `linear-gradient(to bottom, ${darken(hex)}, ${lighten(hex)}, ${darken(hex)})`,
-        }}
-      />
-      <span className="relative z-10 inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/95">
-        {ball.weight}
-      </span>
-    </div>
+      style={{ width: 44, height: 44 }}
+    />
   )
-}
-
-// Small SVG of a sawblade — 10 teeth, central arbor, gold-tinted edges.
-// Used in the next-ball preview when a sawblade is queued.
-function SawbladeIcon() {
-  const teeth = 10
-  const pts: string[] = []
-  for (let i = 0; i < teeth; i++) {
-    const a0 = (i / teeth) * Math.PI * 2
-    const a1 = ((i + 0.55) / teeth) * Math.PI * 2
-    const a2 = ((i + 0.85) / teeth) * Math.PI * 2
-    const aMid = (a0 + a1) / 2
-    // Inner radius 8, outer 14 (over a 32x32 viewBox centered at 16,16)
-    pts.push(`${16 + Math.cos(a0) * 8},${16 + Math.sin(a0) * 8}`)
-    pts.push(`${16 + Math.cos(aMid) * 14},${16 + Math.sin(aMid) * 14}`)
-    pts.push(`${16 + Math.cos(a2) * 8},${16 + Math.sin(a2) * 8}`)
-  }
-  return (
-    <svg viewBox="0 0 32 32" className="w-8 h-8" aria-hidden>
-      <polygon points={pts.join(' ')} fill="#E8C25A" stroke="#7A6020" strokeWidth="0.4" />
-      <circle cx="16" cy="16" r="7" fill="#C8CFDB" stroke="#3A4150" strokeWidth="0.6" />
-      <circle cx="16" cy="16" r="2.4" fill="#1A1F2C" />
-    </svg>
-  )
-}
-
-// Small SVG of an irregular rock — 8-vertex polygon in brown tones with cracks.
-// Static (no spin) so it reads as a passive hazard. Mirrors drawRock() in renderer.
-function RockIcon() {
-  // Pre-computed irregular polygon — same recipe as renderer.rockPolygon,
-  // baked at module load so the preview stays stable across renders.
-  const cx = 16
-  const cy = 16
-  const verts: string[] = []
-  const vCount = 8
-  // Deterministic per-icon shape — use a fixed seed for visual stability.
-  const seed = (n: number) => {
-    const s = Math.sin(n * 12.9898) * 43758.5453
-    return s - Math.floor(s)
-  }
-  for (let i = 0; i < vCount; i++) {
-    const angle = (i / vCount) * Math.PI * 2 + (seed(i + 1) - 0.5) * 0.5
-    const r = 11 * (0.78 + seed(i + 100) * 0.28)
-    verts.push(`${cx + Math.cos(angle) * r},${cy + Math.sin(angle) * r}`)
-  }
-  return (
-    <svg viewBox="0 0 32 32" className="w-9 h-9" aria-hidden>
-      <defs>
-        <radialGradient id="rockGrad" cx="35%" cy="35%" r="70%">
-          <stop offset="0%" stopColor={ROCK_COLORS.highlight} />
-          <stop offset="55%" stopColor={ROCK_COLORS.base} />
-          <stop offset="100%" stopColor={ROCK_COLORS.shadow} />
-        </radialGradient>
-      </defs>
-      <polygon
-        points={verts.join(' ')}
-        fill="url(#rockGrad)"
-        stroke={ROCK_COLORS.shadow}
-        strokeWidth="0.8"
-      />
-      {/* Crack lines from center */}
-      <line x1={cx} y1={cy} x2={cx + 7} y2={cy - 3} stroke={ROCK_COLORS.crack} strokeWidth="0.7" strokeLinecap="round" />
-      <line x1={cx} y1={cy} x2={cx - 4} y2={cy + 6} stroke={ROCK_COLORS.crack} strokeWidth="0.7" strokeLinecap="round" />
-      <line x1={cx} y1={cy} x2={cx + 2} y2={cy + 8} stroke={ROCK_COLORS.crack} strokeWidth="0.7" strokeLinecap="round" />
-      <line x1={cx} y1={cy} x2={cx - 7} y2={cy - 4} stroke={ROCK_COLORS.crack} strokeWidth="0.7" strokeLinecap="round" />
-      <circle cx={cx} cy={cy} r="1.1" fill={ROCK_COLORS.crack} />
-    </svg>
-  )
-}
-
-// SVG plasma ball for the next-ball preview when a blitz ball is queued.
-function BlitzIcon({ weight }: { weight: number }) {
-  return (
-    <svg viewBox="0 0 32 32" className="w-10 h-10" aria-hidden>
-      <defs>
-        <radialGradient id="blitzBody" cx="35%" cy="35%" r="70%">
-          <stop offset="0%" stopColor="#3A4580" />
-          <stop offset="50%" stopColor={BLITZ_COLORS.bodyMid} />
-          <stop offset="100%" stopColor={BLITZ_COLORS.bodyBase} />
-        </radialGradient>
-      </defs>
-      {/* Body */}
-      <circle cx="16" cy="16" r="13" fill="url(#blitzBody)" stroke={BLITZ_COLORS.arcDim} strokeWidth="0.8" />
-      {/* Lightning arcs */}
-      <polyline points="16,6 13,12 17,13 12,22" fill="none" stroke={BLITZ_COLORS.arcBright} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
-      <polyline points="20,9 18,14 21,15 17,23" fill="none" stroke={BLITZ_COLORS.arcDim} strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round" opacity="0.6" />
-      {/* Weight label */}
-      <text x="16" y="17.5" textAnchor="middle" dominantBaseline="middle" fontSize="7" fontWeight="bold" fill={BLITZ_COLORS.arcBright} stroke={BLITZ_COLORS.bodyBase} strokeWidth="2" paintOrder="stroke">{weight}</text>
-    </svg>
-  )
-}
-
-function lighten(hex: string): string {
-  const num = parseInt(hex.replace('#', ''), 16)
-  const r = Math.min(255, (num >> 16) + 70)
-  const g = Math.min(255, ((num >> 8) & 0xff) + 70)
-  const b = Math.min(255, (num & 0xff) + 70)
-  return `rgb(${r},${g},${b})`
-}
-
-function darken(hex: string): string {
-  const num = parseInt(hex.replace('#', ''), 16)
-  const r = Math.max(0, (num >> 16) - 30)
-  const g = Math.max(0, ((num >> 8) & 0xff) - 30)
-  const b = Math.max(0, (num & 0xff) - 30)
-  return `rgb(${r},${g},${b})`
 }
