@@ -1307,6 +1307,10 @@ export default function GameCanvas({
   // Keyboard input
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // Don't steal keys from text inputs (e.g. highscore name entry).
+      const t = e.target as HTMLElement
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return
+
       const state = stateRef.current
 
       if (state.phase === 'gameover') {
