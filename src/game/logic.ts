@@ -626,24 +626,54 @@ export function dropBall(
     seesawIndex,
   )
   let seesaws = catapultResult.seesaws
+  const catapultEvents = catapultResult.events
 
-  // Blitzkugel chain-clear. Runs BEFORE normal match-scanning so the chain-
-  // lightning sweep can clear the field; afterwards the regular cascade kicks
-  // in (so a blitz-revealed match still scores). The blitz ball itself stays
-  // on the arm. We must locate the blitz ball's CURRENT position because
-  // catapult resolution above may have moved/wrapped it (rare but possible).
+  // Blitzkugel chain-clear. Two cases handled in order:
+  //
+  // 1. Recharged blitz: a previously-discharged blitz ball (charged === false)
+  //    that was catapulted this turn lands on a new seesaw, fires once more,
+  //    then is removed from the board entirely.
+  //
+  // 2. Fresh blitz: the player dropped a charged blitz ball. It fires on
+  //    landing, then stays on the arm as discharged (charged = false) so it
+  //    can be catapulted once more to trigger case 1.
   let blitzEvent: DropResult['blitzEvent']
   let blitzClearBonus = 0
-  if (ball.kind === 'blitz') {
-    // Find the freshly-landed blitz ball on the board.
+
+  const catapultedIds = new Set(catapultEvents.map(e => e.ball.id))
+
+  // Case 1 — recharged blitz
+  searchRecharge: for (let si = 0; si < seesaws.length; si++) {
+    for (const sd of ['left', 'right'] as const) {
+      const arm = seesaws[si][sd]
+      if (arm.length === 0) continue
+      const top = arm[arm.length - 1]
+      if (top.kind === 'blitz' && top.charged === false && catapultedIds.has(top.id)) {
+        const { targetColor, clearedBalls } = processBlitzClear(seesaws, si, sd)
+        const preBlitzSeesaws = cloneSeesaws(seesaws)
+        blitzEvent = { seesawIndex: si, side: sd, targetColor, clearedBalls, preBlitzSeesaws }
+        const toRemove = new Set(clearedBalls.map(c => c.ball.id))
+        toRemove.add(top.id)  // recharged blitz is consumed after second fire
+        seesaws = removeAndRecalc(seesaws, toRemove)
+        if (clearedBalls.length > 0) {
+          blitzClearBonus += Math.floor(clearedBalls.length / MATCH_MIN) * 50 + clearedBalls.length * 10
+        }
+        break searchRecharge
+      }
+    }
+  }
+
+  // Case 2 — fresh blitz drop. We must locate the ball's CURRENT position
+  // because catapult resolution above may have moved it (rare but possible).
+  if (ball.kind === 'blitz' && ball.charged !== false) {
     let blitzPos: { si: number; side: 'left' | 'right' } | null = null
-    outer: for (let si = 0; si < seesaws.length; si++) {
+    findFresh: for (let si = 0; si < seesaws.length; si++) {
       for (const sd of ['left', 'right'] as const) {
         const arm = seesaws[si][sd]
         for (let h = 0; h < arm.length; h++) {
           if (arm[h].id === ball.id) {
             blitzPos = { si, side: sd }
-            break outer
+            break findFresh
           }
         }
       }
@@ -665,15 +695,20 @@ export function dropBall(
       if (clearedBalls.length > 0) {
         const toRemove = new Set(clearedBalls.map(c => c.ball.id))
         seesaws = removeAndRecalc(seesaws, toRemove)
-        // Same scoring formula as normal match clears.
         blitzClearBonus =
           Math.floor(clearedBalls.length / MATCH_MIN) * 50 + clearedBalls.length * 10
       }
-    } else {
-      // Blitz ball was lost (e.g. ejected off-board by catapult chain).
-      // No effect.
-      blitzEvent = undefined
+      // Mark as discharged — stays on arm, can be catapulted once to recharge.
+      markDischarged: for (let si = 0; si < seesaws.length; si++) {
+        for (const sd of ['left', 'right'] as const) {
+          for (const b of seesaws[si][sd]) {
+            if (b.id === ball.id) { b.charged = false; break markDischarged }
+          }
+        }
+      }
     }
+    // If ball was lost (ejected off-board), blitzEvent stays as set by case 1
+    // (or remains undefined). No further action needed.
   }
 
   // Cascade matches. Each round records a MatchGroup: the board snapshot
@@ -712,7 +747,7 @@ export function dropBall(
       ballsSinceRock: newQueuedBall.kind === 'rock' ? 0 : newRockSince,
       ballsSinceBlitz: newQueuedBall.kind === 'blitz' ? 0 : newBlitzSince,
     },
-    catapultEvents: catapultResult.events,
+    catapultEvents,
     preCatapultSeesaws,
     matchGroups,
     blitzEvent,

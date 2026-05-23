@@ -174,15 +174,15 @@ export const ROCK_COLORS = {
 
 export const DIFFICULTY_TIERS: DifficultyTier[] = [
   { minScore: 0,     activeColors: 5, activeHalfColors: 0 }, // base — original-game floor
-  { minScore: 400,   activeColors: 6, activeHalfColors: 0 }, // +full orange
-  { minScore: 1000,  activeColors: 7, activeHalfColors: 0 }, // +full yellow
-  { minScore: 1800,  activeColors: 8, activeHalfColors: 0 }, // +full cyan (all 8 full)
-  { minScore: 2800,  activeColors: 8, activeHalfColors: 1 }, // +half green
-  { minScore: 4000,  activeColors: 8, activeHalfColors: 2 }, // +half blue
-  { minScore: 5400,  activeColors: 8, activeHalfColors: 3 }, // +half red
-  { minScore: 7000,  activeColors: 8, activeHalfColors: 4 }, // +half navy
-  { minScore: 8800,  activeColors: 8, activeHalfColors: 5 }, // +half gray
-  { minScore: 10800, activeColors: 8, activeHalfColors: 6 }, // +half orange
-  { minScore: 13000, activeColors: 8, activeHalfColors: 7 }, // +half yellow
-  { minScore: 15400, activeColors: 8, activeHalfColors: 8 }, // +half cyan (peak)
+  { minScore: 500,   activeColors: 6, activeHalfColors: 0 }, // +full orange
+  { minScore: 1200,  activeColors: 7, activeHalfColors: 0 }, // +full yellow
+  { minScore: 2100,  activeColors: 8, activeHalfColors: 0 }, // +full cyan (all 8 full)
+  { minScore: 4000,  activeColors: 8, activeHalfColors: 1 }, // +half green  (+1900)
+  { minScore: 6000,  activeColors: 8, activeHalfColors: 2 }, // +half blue   (+2000)
+  { minScore: 8500,  activeColors: 8, activeHalfColors: 3 }, // +half red    (+2500)
+  { minScore: 11500, activeColors: 8, activeHalfColors: 4 }, // +half navy   (+3000)
+  { minScore: 15000, activeColors: 8, activeHalfColors: 5 }, // +half gray   (+3500)
+  { minScore: 19000, activeColors: 8, activeHalfColors: 6 }, // +half orange (+4000)
+  { minScore: 23500, activeColors: 8, activeHalfColors: 7 }, // +half yellow (+4500)
+  { minScore: 28500, activeColors: 8, activeHalfColors: 8 }, // +half cyan   (+5000, peak)
 ]

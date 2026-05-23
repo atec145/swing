@@ -186,6 +186,7 @@ function drawBall(
 // Draws a plasma / Tesla-ball at (x, y). `t` is a 0..1 animation loop that
 // drives the rotating internal lightning arcs. `weight` is printed as the
 // number label; `alpha` controls overall opacity (for fade-in/out).
+// `charged` false draws a dim discharged look (no arcs, grey body).
 export function drawBlitz(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -193,11 +194,56 @@ export function drawBlitz(
   t: number,
   weight: number,
   alpha = 1,
+  charged = true,
 ) {
   const R = BALL_RADIUS
 
   ctx.save()
   ctx.translate(x, y)
+
+  if (!charged) {
+    // Discharged look: dark grey body with faint amber glow, no plasma arcs.
+    ctx.shadowColor = 'rgba(180,120,40,0.5)'
+    ctx.shadowBlur = 10
+    ctx.globalAlpha = alpha * 0.82
+    const body = ctx.createRadialGradient(-R * 0.28, -R * 0.32, R * 0.04, 0, 0, R)
+    body.addColorStop(0.00, '#4A4440')
+    body.addColorStop(0.35, '#2A2420')
+    body.addColorStop(0.75, '#1A1614')
+    body.addColorStop(1.00, '#0A0806')
+    ctx.fillStyle = body
+    ctx.beginPath()
+    ctx.arc(0, 0, R, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.shadowBlur = 0
+    // Faint amber ring hinting at residual charge
+    ctx.strokeStyle = `rgba(180,110,30,${0.28 * alpha})`
+    ctx.lineWidth = 1.2
+    ctx.beginPath()
+    ctx.arc(0, 0, R - 0.5, 0, Math.PI * 2)
+    ctx.stroke()
+    // Specular highlight (dimmer)
+    ctx.globalAlpha = alpha * 0.3
+    const hl = ctx.createRadialGradient(-R * 0.3, -R * 0.36, 0, -R * 0.28, -R * 0.34, R * 0.28)
+    hl.addColorStop(0, 'rgba(255,230,180,0.5)')
+    hl.addColorStop(1, 'rgba(255,200,100,0)')
+    ctx.fillStyle = hl
+    ctx.beginPath()
+    ctx.ellipse(-R * 0.3, -R * 0.36, R * 0.28, R * 0.15, -Math.PI / 5, 0, Math.PI * 2)
+    ctx.fill()
+    // Weight label
+    ctx.globalAlpha = alpha * 0.65
+    ctx.font = `bold ${R * 0.85}px system-ui`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.lineWidth = 3
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'
+    ctx.strokeText(String(weight), 0, 1)
+    ctx.fillStyle = 'rgba(180,150,100,0.9)'
+    ctx.fillText(String(weight), 0, 1)
+    ctx.restore()
+    return
+  }
 
   // Outer electric aura glow
   ctx.shadowColor = BLITZ_COLORS.aura
@@ -1271,7 +1317,7 @@ export function render(
       const dis = dissolveAnim?.get(b.id)
       const by = lEnd.y - BALL_RADIUS - j * BALL_SPACING
       if (b.kind === 'blitz') {
-        withCut(b.id, lEnd.x, by, () => drawBlitz(ctx, lEnd.x, by, blitzT, b.weight))
+        withCut(b.id, lEnd.x, by, () => drawBlitz(ctx, lEnd.x, by, blitzT, b.weight, 1, b.charged !== false))
       } else {
         withCut(b.id, lEnd.x, by, () => drawBall(
           ctx, lEnd.x, by,
@@ -1289,7 +1335,7 @@ export function render(
       const dis = dissolveAnim?.get(b.id)
       const by = rEnd.y - BALL_RADIUS - j * BALL_SPACING
       if (b.kind === 'blitz') {
-        withCut(b.id, rEnd.x, by, () => drawBlitz(ctx, rEnd.x, by, blitzT, b.weight))
+        withCut(b.id, rEnd.x, by, () => drawBlitz(ctx, rEnd.x, by, blitzT, b.weight, 1, b.charged !== false))
       } else {
         withCut(b.id, rEnd.x, by, () => drawBall(
           ctx, rEnd.x, by,
@@ -1335,7 +1381,7 @@ export function render(
       if (fb.ball.kind === 'sawblade') {
         drawSawblade(ctx, fb.x, fb.y, craneAnim.sawbladeRotation)
       } else if (fb.ball.kind === 'blitz') {
-        drawBlitz(ctx, fb.x, fb.y, craneAnim.blitzAnimT ?? 0, fb.ball.weight)
+        drawBlitz(ctx, fb.x, fb.y, craneAnim.blitzAnimT ?? 0, fb.ball.weight, 1, fb.ball.charged !== false)
       } else {
         drawBall(
           ctx, fb.x, fb.y,

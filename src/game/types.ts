@@ -28,6 +28,8 @@ export interface Ball {
   variant: Variant
   weight: number
   kind?: BallKind
+  // blitz only: undefined/true = charged (can fire), false = discharged (catapult once to recharge)
+  charged?: boolean
 }
 
 // Discrete 3-state tilt model. A seesaw is always in exactly one of these
