@@ -474,6 +474,7 @@ export interface DropResult {
       side: 'left' | 'right'
       stackIndex: number
     }>
+    preBlitzSeesaws: SeesawState[]
   }
 }
 
@@ -653,11 +654,13 @@ export function dropBall(
         blitzPos.si,
         blitzPos.side,
       )
+      const preBlitzSeesaws = cloneSeesaws(seesaws)
       blitzEvent = {
         seesawIndex: blitzPos.si,
         side: blitzPos.side,
         targetColor,
         clearedBalls,
+        preBlitzSeesaws,
       }
       if (clearedBalls.length > 0) {
         const toRemove = new Set(clearedBalls.map(c => c.ball.id))

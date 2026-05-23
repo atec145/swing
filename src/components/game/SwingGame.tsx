@@ -15,6 +15,7 @@ export default function SwingGame() {
     handleConsumeCatapult,
     handleConsumeMatch,
     handleConsumeSawblade,
+    handleConsumeBlitz,
     handleRestart,
   } = useGameState()
 
@@ -48,6 +49,7 @@ export default function SwingGame() {
         onConsumeCatapult={handleConsumeCatapult}
         onConsumeMatch={handleConsumeMatch}
         onConsumeSawblade={handleConsumeSawblade}
+        onConsumeBlitz={handleConsumeBlitz}
         onRestart={handleRestart}
       />
       <div className="border-t border-slate-800 bg-gray-950/80">

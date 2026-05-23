@@ -3,7 +3,7 @@ import {
   NUM_SEESAWS, CW, CH, PIVOT_Y, ARM_LENGTH, BALL_RADIUS, BALL_SPACING,
   COLOR_HEX, COLOR_GLOW, SEESAW_SPACING, MARGIN_X,
   CRANE_RAIL_Y, CRANE_BODY_H, CRANE_GRIP_Y,
-  ROCK_COLORS,
+  ROCK_COLORS, BLITZ_COLORS,
 } from './constants'
 import { seesawCenterX, leftArmEnd, rightArmEnd } from './physics'
 
@@ -181,6 +181,115 @@ function drawBall(
     return
   }
   drawBallBody(ctx, x, y, color, glow, weight, variant, alpha, dangerLevel)
+}
+
+// Draws a plasma / Tesla-ball at (x, y). `t` is a 0..1 animation loop that
+// drives the rotating internal lightning arcs. `weight` is printed as the
+// number label; `alpha` controls overall opacity (for fade-in/out).
+export function drawBlitz(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  t: number,
+  weight: number,
+  alpha = 1,
+) {
+  const R = BALL_RADIUS
+
+  ctx.save()
+  ctx.translate(x, y)
+
+  // Outer electric aura glow
+  ctx.shadowColor = BLITZ_COLORS.aura
+  ctx.shadowBlur = 22
+  ctx.globalAlpha = alpha
+
+  // Glassy dark body with strong radial gradient (top-left light source)
+  const body = ctx.createRadialGradient(-R * 0.32, -R * 0.38, R * 0.04, 0, 0, R)
+  body.addColorStop(0.00, '#3E4E90')   // lit inner
+  body.addColorStop(0.30, '#1A1F3A')   // deep navy
+  body.addColorStop(0.72, '#0F1228')   // dark mid
+  body.addColorStop(1.00, '#060912')   // near-black rim
+  ctx.fillStyle = body
+  ctx.globalAlpha = alpha * 0.91      // slight transparency for glass look
+  ctx.beginPath()
+  ctx.arc(0, 0, R, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.globalAlpha = alpha
+  ctx.shadowBlur = 0
+
+  // Clip everything inside to the sphere boundary
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(0, 0, R - 1.5, 0, Math.PI * 2)
+  ctx.clip()
+
+  // 3 animated plasma arcs from center to surface. Each rotates at a
+  // different angular speed so they look alive and non-repetitive.
+  for (let i = 0; i < 3; i++) {
+    const baseAngle = (i / 3) * Math.PI * 2 + t * Math.PI * 2 * (0.28 + i * 0.14)
+    const endX = Math.cos(baseAngle) * R * 0.84
+    const endY = Math.sin(baseAngle) * R * 0.84
+    const perpX = -endY / R
+    const perpY = endX / R
+
+    ctx.beginPath()
+    ctx.moveTo(0, 0)
+    for (let s = 1; s <= 5; s++) {
+      const frac = s / 5
+      const px = endX * frac
+      const py = endY * frac
+      const wobble = frac < 1
+        ? Math.sin(t * Math.PI * 9 + i * 2.5 + s * 1.8) * R * 0.22
+        : 0
+      ctx.lineTo(px + perpX * wobble, py + perpY * wobble)
+    }
+
+    // Glow halo around each arc
+    ctx.shadowColor = BLITZ_COLORS.arcBright
+    ctx.shadowBlur = 8
+    ctx.strokeStyle = BLITZ_COLORS.arcDim
+    ctx.lineWidth = 2.4
+    ctx.lineCap = 'round'
+    ctx.stroke()
+
+    // Bright core on top
+    ctx.shadowBlur = 0
+    ctx.strokeStyle = BLITZ_COLORS.arcBright
+    ctx.lineWidth = 0.9
+    ctx.stroke()
+  }
+
+  ctx.restore()  // pop clip
+
+  // Glass specular highlight — upper-left ellipse crescent
+  const hl = ctx.createRadialGradient(-R * 0.3, -R * 0.36, 0, -R * 0.28, -R * 0.34, R * 0.3)
+  hl.addColorStop(0,   'rgba(255,255,255,0.55)')
+  hl.addColorStop(0.5, 'rgba(200,220,255,0.15)')
+  hl.addColorStop(1,   'rgba(200,220,255,0)')
+  ctx.fillStyle = hl
+  ctx.beginPath()
+  ctx.ellipse(-R * 0.3, -R * 0.36, R * 0.3, R * 0.17, -Math.PI / 5, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Thin glass rim ring
+  ctx.strokeStyle = 'rgba(120,170,255,0.45)'
+  ctx.lineWidth = 1.5
+  ctx.beginPath()
+  ctx.arc(0, 0, R - 0.5, 0, Math.PI * 2)
+  ctx.stroke()
+
+  // Weight number
+  ctx.font = `bold ${R * 0.85}px system-ui`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineWidth = 3
+  ctx.strokeStyle = 'rgba(0,0,50,0.65)'
+  ctx.strokeText(String(weight), 0, 1)
+  ctx.fillStyle = 'rgba(195,220,255,0.95)'
+  ctx.fillText(String(weight), 0, 1)
+
+  ctx.restore()
 }
 
 // Deterministic per-ID polygon — same rock always has the same silhouette.
@@ -885,6 +994,7 @@ function drawCraneRail(ctx: CanvasRenderingContext2D) {
 
 // Crane gantry + gripper. `releaseProgress` 0..1 animates the claws opening.
 // `sawbladeRotation` is the current spinning angle for any sawblade held.
+// `blitzAnimT` 0..1 loop drives plasma arc animation for any held blitz ball.
 function drawCrane(
   ctx: CanvasRenderingContext2D,
   craneX: number,
@@ -892,6 +1002,7 @@ function drawCrane(
   releaseProgress: number,
   showBall: boolean,
   sawbladeRotation: number,
+  blitzAnimT = 0,
 ) {
   const bodyTop = CRANE_RAIL_Y
   const bodyBottom = CRANE_RAIL_Y + CRANE_BODY_H
@@ -998,6 +1109,8 @@ function drawCrane(
   if (showBall && ball) {
     if (ball.kind === 'sawblade') {
       drawSawblade(ctx, craneX, CRANE_GRIP_Y, sawbladeRotation)
+    } else if (ball.kind === 'blitz') {
+      drawBlitz(ctx, craneX, CRANE_GRIP_Y, blitzAnimT, ball.weight)
     } else {
       drawBall(
         ctx, craneX, CRANE_GRIP_Y,
@@ -1092,6 +1205,9 @@ export interface CraneAnim {
   // The ball currently being ground: portion ABOVE cutY is hidden so the ball
   // appears to be progressively shaved off the top as the blade descends.
   grindCut?: { ballId: string; cutY: number }
+  // 0..1 animation loop for plasma arcs on any blitz ball in view.
+  // Incremented each frame by GameCanvas; drives drawBlitz() arc rotation.
+  blitzAnimT?: number
 }
 
 // Particle rendered during a sawblade impact. GameCanvas integrates physics
@@ -1145,6 +1261,8 @@ export function render(
 
     drawSeesaw(ctx, cx, sw.angle, highlighted)
 
+    const blitzT = craneAnim?.blitzAnimT ?? 0
+
     // Balls on left arm
     const lEnd = leftArmEnd(cx, sw.angle)
     const leftDanger = sw.left.length >= 7 ? 2 : sw.left.length >= 6 ? 1 : 0
@@ -1152,11 +1270,15 @@ export function render(
       const b = sw.left[j]
       const dis = dissolveAnim?.get(b.id)
       const by = lEnd.y - BALL_RADIUS - j * BALL_SPACING
-      withCut(b.id, lEnd.x, by, () => drawBall(
-        ctx, lEnd.x, by,
-        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
-        1, dis ? 0 : leftDanger, dis, b,
-      ))
+      if (b.kind === 'blitz') {
+        withCut(b.id, lEnd.x, by, () => drawBlitz(ctx, lEnd.x, by, blitzT, b.weight))
+      } else {
+        withCut(b.id, lEnd.x, by, () => drawBall(
+          ctx, lEnd.x, by,
+          COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
+          1, dis ? 0 : leftDanger, dis, b,
+        ))
+      }
     }
 
     // Balls on right arm
@@ -1166,11 +1288,15 @@ export function render(
       const b = sw.right[j]
       const dis = dissolveAnim?.get(b.id)
       const by = rEnd.y - BALL_RADIUS - j * BALL_SPACING
-      withCut(b.id, rEnd.x, by, () => drawBall(
-        ctx, rEnd.x, by,
-        COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
-        1, dis ? 0 : rightDanger, dis, b,
-      ))
+      if (b.kind === 'blitz') {
+        withCut(b.id, rEnd.x, by, () => drawBlitz(ctx, rEnd.x, by, blitzT, b.weight))
+      } else {
+        withCut(b.id, rEnd.x, by, () => drawBall(
+          ctx, rEnd.x, by,
+          COLOR_HEX[b.color], COLOR_GLOW[b.color], b.weight, b.variant,
+          1, dis ? 0 : rightDanger, dis, b,
+        ))
+      }
     }
   }
 
@@ -1200,6 +1326,7 @@ export function render(
       craneAnim.releaseProgress,
       craneAnim.showBallInCrane,
       craneAnim.sawbladeRotation,
+      craneAnim.blitzAnimT ?? 0,
     )
 
     // Falling ball, if any
@@ -1207,6 +1334,8 @@ export function render(
       const fb = craneAnim.fallingBall
       if (fb.ball.kind === 'sawblade') {
         drawSawblade(ctx, fb.x, fb.y, craneAnim.sawbladeRotation)
+      } else if (fb.ball.kind === 'blitz') {
+        drawBlitz(ctx, fb.x, fb.y, craneAnim.blitzAnimT ?? 0, fb.ball.weight)
       } else {
         drawBall(
           ctx, fb.x, fb.y,

@@ -131,14 +131,14 @@ export const ROCK_WEIGHT = 15      // full tilt physics participation
 //
 // Sawblade: ~every 28 balls  →  MIN_GAP=16, TARGET_GAP=28 (guaranteed by 40)
 // Rock:     ~every 50 balls  →  MIN_GAP=30, TARGET_GAP=50 (guaranteed by 70)
-// Blitz:    ~every 40 balls  →  MIN_GAP=24, TARGET_GAP=40 (guaranteed by 56)
+// Blitz:    ~every 80 balls  →  MIN_GAP=48, TARGET_GAP=80 (guaranteed by 112)
 // ---------------------------------------------------------------------------
 export const SAWBLADE_MIN_GAP    = 16
 export const SAWBLADE_TARGET_GAP = 28
 export const ROCK_MIN_GAP        = 30
 export const ROCK_TARGET_GAP     = 50
-export const BLITZ_MIN_GAP       = 24
-export const BLITZ_TARGET_GAP    = 40
+export const BLITZ_MIN_GAP       = 48
+export const BLITZ_TARGET_GAP    = 80
 
 // ---------------------------------------------------------------------------
 // Blitz (Blitzkugel / lightning ball) special ball — Issue #13

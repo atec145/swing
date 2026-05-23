@@ -12,6 +12,7 @@ type Action =
   | { type: 'CONSUME_CATAPULT'; seq: number }
   | { type: 'CONSUME_MATCH'; seq: number }
   | { type: 'CONSUME_SAWBLADE'; seq: number }
+  | { type: 'CONSUME_BLITZ'; seq: number }
   | { type: 'RESTART' }
 
 // Monotonic sequence so the animation layer can tell two consecutive drops
@@ -22,19 +23,20 @@ let dropSeq = 0
 function reducer(state: GameState, action: Action): GameState {
   switch (action.type) {
     case 'DROP': {
-      const { state: next, catapultEvents, preCatapultSeesaws, matchGroups, sawbladeEvent } =
+      const { state: next, catapultEvents, preCatapultSeesaws, matchGroups, sawbladeEvent, blitzEvent } =
         dropBall(state, action.seesawIndex, action.side)
 
       if (
         catapultEvents.length === 0 &&
         matchGroups.length === 0 &&
-        !sawbladeEvent
+        !sawbladeEvent &&
+        !blitzEvent
       ) {
-        return { ...next, pendingCatapult: null, pendingMatch: null, pendingSawblade: null }
+        return { ...next, pendingCatapult: null, pendingMatch: null, pendingSawblade: null, pendingBlitz: null }
       }
 
-      // One seq per drop, shared by all three side-channels. The canvas plays
-      // sawblade FX, catapult replay, then match dissolves in order.
+      // One seq per drop, shared by all side-channels. Canvas plays:
+      // catapult replay → blitz FX → match dissolve (in that order).
       const seq = ++dropSeq
       return {
         ...next,
@@ -46,6 +48,9 @@ function reducer(state: GameState, action: Action): GameState {
           matchGroups.length > 0 ? { seq, groups: matchGroups } : null,
         pendingSawblade: sawbladeEvent
           ? { seq, ...sawbladeEvent }
+          : null,
+        pendingBlitz: blitzEvent
+          ? { seq, ...blitzEvent }
           : null,
       }
     }
@@ -66,6 +71,12 @@ function reducer(state: GameState, action: Action): GameState {
         return state
       }
       return { ...state, pendingSawblade: null }
+    }
+    case 'CONSUME_BLITZ': {
+      if (!state.pendingBlitz || state.pendingBlitz.seq !== action.seq) {
+        return state
+      }
+      return { ...state, pendingBlitz: null }
     }
     case 'CRANE_MOVE': {
       if (state.phase === 'gameover') return state
@@ -115,6 +126,10 @@ export function useGameState() {
     dispatch({ type: 'CONSUME_SAWBLADE', seq })
   }, [])
 
+  const handleConsumeBlitz = useCallback((seq: number) => {
+    dispatch({ type: 'CONSUME_BLITZ', seq })
+  }, [])
+
   const handleRestart = useCallback(() => {
     dispatch({ type: 'RESTART' })
   }, [])
@@ -127,6 +142,7 @@ export function useGameState() {
     handleConsumeCatapult,
     handleConsumeMatch,
     handleConsumeSawblade,
+    handleConsumeBlitz,
     handleRestart,
   }
 }

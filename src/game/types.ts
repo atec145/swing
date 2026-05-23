@@ -122,6 +122,10 @@ export interface GameState {
       side: 'left' | 'right'
       stackIndex: number        // physical index in arm (0 = bottom)
     }>
+    // Board snapshot captured just before the chain-clear removed the target
+    // balls. Used by the animation layer so it can draw the balls while the
+    // lightning arcs play, then switch to the live (cleared) state.
+    preBlitzSeesaws: SeesawState[]
   } | null
   // Ramp-up counters for special-ball spawning. Incremented each time a ball
   // is generated; reset to 0 when that special type spawns. Used by

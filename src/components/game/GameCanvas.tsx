@@ -16,7 +16,7 @@ import {
   type DissolveAnim,
   type SawbladeParticle,
 } from '@/game/renderer'
-import { computeAngle } from '@/game/physics'
+import { computeAngle, seesawCenterX, leftArmEnd, rightArmEnd } from '@/game/physics'
 import {
   CW, CH,
   CRANE_GRIP_Y,
@@ -41,6 +41,7 @@ interface Props {
   onConsumeCatapult: (seq: number) => void
   onConsumeMatch: (seq: number) => void
   onConsumeSawblade: (seq: number) => void
+  onConsumeBlitz: (seq: number) => void
   onRestart: () => void
 }
 
@@ -65,6 +66,10 @@ const GRIND_CUT_START = 0
 const GRIND_CUT_END = 0.90
 const SPARK_COUNT = 55                         // particles per ball impact
 const FRAG_PER_BALL = 6                        // fragment particles per cleared ball
+
+// Blitz animation tuning (Issue #13)
+const BLITZ_FLASH_MS = 100       // brief white discharge flash at landing
+const BLITZ_CHAIN_MS = 520       // lightning arcs visible + target balls bleach out
 
 // Catapult animation tuning (see Issue #3 tech design).
 const MS_PER_SLOT = 300
@@ -197,6 +202,54 @@ function spawnRockFragments(x: number, y: number, particles: SawbladeParticle[])
     ;(particles[particles.length - 1] as SawbladeParticle & { spin?: number }).spin =
       (Math.random() - 0.5) * 0.3
   }
+}
+
+// Draws one jagged lightning bolt from (x0,y0) to (x1,y1). `t` 0..1 drives
+// the wobble animation; `seed` makes each bolt deterministically different.
+function drawLightningBolt(
+  ctx: CanvasRenderingContext2D,
+  x0: number, y0: number,
+  x1: number, y1: number,
+  t: number,
+  alpha: number,
+  seed: number,
+) {
+  const dx = x1 - x0, dy = y1 - y0
+  const len = Math.sqrt(dx * dx + dy * dy)
+  if (len < 2) return
+  const perpX = -dy / len, perpY = dx / len
+
+  const SEGS = 7
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.beginPath()
+  ctx.moveTo(x0, y0)
+  for (let i = 1; i < SEGS; i++) {
+    const frac = i / SEGS
+    const mx = x0 + dx * frac, my = y0 + dy * frac
+    const wobble = Math.sin(t * Math.PI * 6 + seed * 2.7 + i * 1.6) * len * 0.14
+    ctx.lineTo(mx + perpX * wobble, my + perpY * wobble)
+  }
+  ctx.lineTo(x1, y1)
+
+  // Wide soft glow
+  ctx.strokeStyle = 'rgba(100,150,255,0.28)'
+  ctx.lineWidth = 6
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.shadowBlur = 0
+  ctx.stroke()
+  // Mid glow
+  ctx.strokeStyle = 'rgba(140,185,255,0.55)'
+  ctx.lineWidth = 2.5
+  ctx.stroke()
+  // Bright core
+  ctx.strokeStyle = '#D8EEFF'
+  ctx.lineWidth = 0.9
+  ctx.shadowColor = '#FFFFFF'
+  ctx.shadowBlur = 10
+  ctx.stroke()
+  ctx.restore()
 }
 
 // Y position of the platform for a given seesaw side at a given angle.
@@ -335,6 +388,7 @@ export default function GameCanvas({
   onConsumeCatapult,
   onConsumeMatch,
   onConsumeSawblade,
+  onConsumeBlitz,
   onRestart,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -349,6 +403,8 @@ export default function GameCanvas({
   onConsumeMatchRef.current = onConsumeMatch
   const onConsumeSawbladeRef = useRef(onConsumeSawblade)
   onConsumeSawbladeRef.current = onConsumeSawblade
+  const onConsumeBlitzRef = useRef(onConsumeBlitz)
+  onConsumeBlitzRef.current = onConsumeBlitz
   const onDropRef = useRef(onDrop)
   onDropRef.current = onDrop
   const onCraneSetPositionRef = useRef(onCraneSetPosition)
@@ -414,6 +470,19 @@ export default function GameCanvas({
     sawbladeLastSparkT: number            // timestamp of last continuous spark pulse
     sawbladeFinishSeq: number | null      // seq to commit once animation ends
 
+    // --- Blitz (lightning ball) special effect ---
+    blitzSeq: number | null
+    blitzPending: boolean          // registered, waiting for catapult to finish
+    blitzPhase: 'idle' | 'flash' | 'chain'
+    blitzPhaseStartT: number
+    blitzBallX: number             // screen X of the landed blitz ball
+    blitzBallY: number             // screen Y of the landed blitz ball
+    blitzTargets: Array<{ x: number; y: number }>  // screen positions of target balls
+    blitzVisualSeesaws: SeesawState[] | null        // pre-clear board snapshot
+    blitzAnimT: number             // 0..1 loop for plasma arc rotation
+    blitzLastTickT: number
+    blitzFinishSeq: number | null
+
     // Override duration for the next crane move (set by touch handler to scale
     // with jump distance; consumed and cleared by the cranePositionIndex effect).
     pendingMoveDuration: number | null
@@ -461,6 +530,17 @@ export default function GameCanvas({
     sawbladeSideAnim: 'left' as 'left' | 'right',
     sawbladeParticles: [],
     sawbladeFinishSeq: null,
+    blitzSeq: null,
+    blitzPending: false,
+    blitzPhase: 'idle' as 'idle' | 'flash' | 'chain',
+    blitzPhaseStartT: 0,
+    blitzBallX: 0,
+    blitzBallY: 0,
+    blitzTargets: [] as Array<{ x: number; y: number }>,
+    blitzVisualSeesaws: null as SeesawState[] | null,
+    blitzAnimT: 0,
+    blitzLastTickT: 0,
+    blitzFinishSeq: null,
     pendingMoveDuration: null,
   })
 
@@ -479,9 +559,14 @@ export default function GameCanvas({
     return a.sawbladePhase !== 'idle' || a.sawbladeVisualSeesaws !== null
   }, [])
 
+  const isAnimatingBlitz = useCallback(() => {
+    const a = animRef.current
+    return a.blitzPhase !== 'idle' || a.blitzPending || a.blitzVisualSeesaws !== null
+  }, [])
+
   // Input is locked while releasing, while a ball falls, while a catapult
   // chain is replaying, while a match dissolve is animating, OR while a
-  // sawblade special effect is running.
+  // special effect is running.
   const isInputLocked = useCallback(() => {
     const a = animRef.current
     return (
@@ -489,9 +574,10 @@ export default function GameCanvas({
       a.fallingBall !== null ||
       isAnimatingCatapult() ||
       isAnimatingDissolve() ||
-      isAnimatingSawblade()
+      isAnimatingSawblade() ||
+      isAnimatingBlitz()
     )
-  }, [isAnimatingCatapult, isAnimatingDissolve, isAnimatingSawblade])
+  }, [isAnimatingCatapult, isAnimatingDissolve, isAnimatingSawblade, isAnimatingBlitz])
 
   const targetCraneX = useCallback((posIndex: number) => craneXForIndex(posIndex), [])
 
@@ -533,6 +619,13 @@ export default function GameCanvas({
       a.sawbladeFinishSeq = null
       a.sawbladeBallsToGrind = []
       a.sawbladeVisualSeesaws = null
+      // Abort any in-flight blitz effect on restart.
+      a.blitzSeq = null
+      a.blitzPending = false
+      a.blitzPhase = 'idle'
+      a.blitzVisualSeesaws = null
+      a.blitzTargets = []
+      a.blitzFinishSeq = null
       return
     }
 
@@ -612,6 +705,44 @@ export default function GameCanvas({
     a.sawbladePhase = 'bounce'
     a.sawbladePhaseStartT = performance.now()
   }, [gameState.pendingSawblade])
+
+  // Detect a fresh blitz event. Registers animation data; the actual phase
+  // machine starts in the tick loop once any preceding catapult has settled.
+  useEffect(() => {
+    const pending = gameState.pendingBlitz
+    if (!pending) return
+    const a = animRef.current
+    if (a.blitzSeq === pending.seq) return
+
+    a.blitzSeq = pending.seq
+    a.blitzFinishSeq = pending.seq
+    a.blitzPending = true
+    a.blitzPhase = 'idle'
+
+    // Snapshot board with cleared balls still present
+    a.blitzVisualSeesaws = cloneSeesaws(pending.preBlitzSeesaws)
+
+    // Compute screen position of the blitz ball itself (top of its arm)
+    const blitzSw = pending.preBlitzSeesaws[pending.seesawIndex]
+    const blitzCx = seesawCenterX(pending.seesawIndex)
+    const blitzArmEnd = pending.side === 'left'
+      ? leftArmEnd(blitzCx, blitzSw.angle)
+      : rightArmEnd(blitzCx, blitzSw.angle)
+    const blitzArm = blitzSw[pending.side]
+    a.blitzBallX = blitzArmEnd.x
+    a.blitzBallY = blitzArmEnd.y - BALL_RADIUS - (blitzArm.length - 1) * BALL_SPACING
+
+    // Compute screen positions of all target balls
+    a.blitzTargets = pending.clearedBalls.map(({ seesawIndex: si, side, stackIndex: h }) => {
+      const sw = pending.preBlitzSeesaws[si]
+      const cx = seesawCenterX(si)
+      const armEnd = side === 'left' ? leftArmEnd(cx, sw.angle) : rightArmEnd(cx, sw.angle)
+      return {
+        x: armEnd.x,
+        y: armEnd.y - BALL_RADIUS - h * BALL_SPACING,
+      }
+    })
+  }, [gameState.pendingBlitz])
 
   // RAF loop.
   useEffect(() => {
@@ -921,6 +1052,38 @@ export default function GameCanvas({
         }
       }
 
+      // Blitz animation — waits for catapult to finish before starting.
+      // Phase machine: idle → flash (100ms) → chain (520ms) → idle.
+      {
+        const dt = a.blitzLastTickT === 0 ? 16 : Math.min(64, now - a.blitzLastTickT)
+        a.blitzLastTickT = now
+        a.blitzAnimT = (a.blitzAnimT + dt / 1500) % 1  // full rotation every 1.5s
+
+        // Start flash only once catapult has settled
+        if (!a.catapultVisual && a.blitzPending) {
+          a.blitzPending = false
+          a.blitzPhase = 'flash'
+          a.blitzPhaseStartT = now
+        }
+
+        if (a.blitzPhase === 'flash') {
+          if (now - a.blitzPhaseStartT >= BLITZ_FLASH_MS) {
+            a.blitzPhase = 'chain'
+            a.blitzPhaseStartT = now
+          }
+        } else if (a.blitzPhase === 'chain') {
+          if (now - a.blitzPhaseStartT >= BLITZ_CHAIN_MS) {
+            // Balls gone — switch to live state
+            a.blitzVisualSeesaws = null
+            const finishSeq = a.blitzFinishSeq
+            a.blitzPhase = 'idle'
+            a.blitzSeq = null
+            a.blitzFinishSeq = null
+            if (finishSeq !== null) onConsumeBlitzRef.current(finishSeq)
+          }
+        }
+      }
+
       // Catapult chain replay
       let catapultBall: CraneAnim['catapultBall'] = null
       if (a.catapultVisual) {
@@ -957,11 +1120,10 @@ export default function GameCanvas({
         }
       }
 
-      // Match dissolve replay. Starts only after any catapult replay for the
-      // same seq has fully committed (a.catapultVisual === null) so the beam
-      // plays on the settled board, per spec.
+      // Match dissolve replay. Starts only after catapult AND blitz have
+      // settled so the beam plays on the board as left by the blitz clear.
       let dissolveAnim: DissolveAnim | undefined
-      if (!a.catapultVisual && a.dissolveSeq !== null) {
+      if (!a.catapultVisual && !a.blitzPending && a.blitzPhase === 'idle' && a.dissolveSeq !== null) {
         if (!a.dissolveVisual && a.dissolveGroups.length > 0) {
           advanceDissolve(now)
         }
@@ -981,15 +1143,17 @@ export default function GameCanvas({
       }
 
       // Build the GameState to render. Priority: catapult → dissolve →
-      // sawblade visual (balls not yet ground away) → live.
+      // blitz visual (target balls still present) → sawblade → live.
       const baseState = stateRef.current
       const renderState: GameState = a.catapultVisual
         ? { ...baseState, seesaws: a.catapultVisual }
         : a.dissolveVisual
           ? { ...baseState, seesaws: a.dissolveVisual }
-          : a.sawbladeVisualSeesaws
-            ? { ...baseState, seesaws: a.sawbladeVisualSeesaws }
-            : baseState
+          : a.blitzVisualSeesaws
+            ? { ...baseState, seesaws: a.blitzVisualSeesaws }
+            : a.sawbladeVisualSeesaws
+              ? { ...baseState, seesaws: a.sawbladeVisualSeesaws }
+              : baseState
 
       const craneAnim: CraneAnim = {
         craneX: a.craneCurrentX,
@@ -1000,7 +1164,8 @@ export default function GameCanvas({
           !a.pendingDrop &&
           !isAnimatingCatapult() &&
           !isAnimatingDissolve() &&
-          !isAnimatingSawblade(),
+          !isAnimatingSawblade() &&
+          !isAnimatingBlitz(),
         fallingBall: a.fallingBall
           ? { x: a.fallingBall.x, y: a.fallingBall.y, ball: a.fallingBall.ball }
           : null,
@@ -1016,9 +1181,83 @@ export default function GameCanvas({
         grindCut: a.sawbladePhase === 'grind' && a.sawbladeBallsToGrind.length > 0
           ? { ballId: a.sawbladeBallsToGrind[0].id, cutY: a.sawbladeCurrentY + BALL_RADIUS }
           : undefined,
+        blitzAnimT: a.blitzAnimT,
       }
 
       render(ctx, renderState, craneAnim, dissolveAnim)
+
+      // Blitz overlay — drawn directly on canvas after normal board render
+      // so it sits on top of balls, below nothing (full-screen effect).
+      if (a.blitzPhase !== 'idle') {
+        const elapsed = now - a.blitzPhaseStartT
+
+        if (a.blitzPhase === 'flash') {
+          const t = Math.min(1, elapsed / BLITZ_FLASH_MS)
+          const flashA = Math.pow(1 - t, 1.5) * 0.8
+          ctx.save()
+          // Central blast at blitz ball position
+          ctx.globalAlpha = flashA
+          ctx.fillStyle = '#B0D0FF'
+          ctx.shadowColor = '#FFFFFF'
+          ctx.shadowBlur = 35
+          ctx.beginPath()
+          ctx.arc(a.blitzBallX, a.blitzBallY, BALL_RADIUS * 3.5, 0, Math.PI * 2)
+          ctx.fill()
+          // Simultaneous flash at each target ball
+          ctx.shadowBlur = 18
+          for (const tgt of a.blitzTargets) {
+            ctx.beginPath()
+            ctx.arc(tgt.x, tgt.y, BALL_RADIUS * 1.8, 0, Math.PI * 2)
+            ctx.fill()
+          }
+          ctx.restore()
+
+        } else if (a.blitzPhase === 'chain') {
+          const t = Math.min(1, elapsed / BLITZ_CHAIN_MS)
+
+          // Lightning bolts from blitz ball to every target
+          const boltAlpha = t < 0.75 ? 1 : 1 - (t - 0.75) / 0.25
+          for (let i = 0; i < a.blitzTargets.length; i++) {
+            const tgt = a.blitzTargets[i]
+            drawLightningBolt(
+              ctx,
+              a.blitzBallX, a.blitzBallY,
+              tgt.x, tgt.y,
+              t * 3 + i * 0.4,   // stagger wobble per bolt
+              boltAlpha,
+              i,
+            )
+          }
+
+          // Blitz ball pulse glow (electric corona while firing)
+          const coronaAlpha = (0.4 + 0.3 * Math.sin(t * Math.PI * 8)) * boltAlpha
+          ctx.save()
+          ctx.globalAlpha = coronaAlpha
+          ctx.fillStyle = 'rgba(120,170,255,0.5)'
+          ctx.shadowColor = '#AACCFF'
+          ctx.shadowBlur = 20
+          ctx.beginPath()
+          ctx.arc(a.blitzBallX, a.blitzBallY, BALL_RADIUS * 1.7, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.restore()
+
+          // White bleach overlay on target balls — they glow white then vanish
+          if (t > 0.55) {
+            const bleachA = Math.min(1, (t - 0.55) / 0.35) * 0.9
+            ctx.save()
+            ctx.globalAlpha = bleachA
+            ctx.fillStyle = '#DDEEFF'
+            ctx.shadowColor = '#AACCFF'
+            ctx.shadowBlur = 16
+            for (const tgt of a.blitzTargets) {
+              ctx.beginPath()
+              ctx.arc(tgt.x, tgt.y, BALL_RADIUS + 1, 0, Math.PI * 2)
+              ctx.fill()
+            }
+            ctx.restore()
+          }
+        }
+      }
       rafRef.current = requestAnimationFrame(tick)
     }
 
@@ -1045,7 +1284,7 @@ export default function GameCanvas({
       running = false
       cancelAnimationFrame(rafRef.current)
     }
-  }, [isAnimatingCatapult, isAnimatingDissolve, isAnimatingSawblade])
+  }, [isAnimatingCatapult, isAnimatingDissolve, isAnimatingSawblade, isAnimatingBlitz])
 
   // Tab-visibility skip: if the tab is hidden mid-dissolve, snap to the final
   // state immediately (balls already removed in logic) — no stuck animation.
