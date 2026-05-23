@@ -1,7 +1,7 @@
 'use client'
 
 import type { Ball } from '@/game/types'
-import { COLOR_HEX, ROCK_COLORS } from '@/game/constants'
+import { COLOR_HEX, ROCK_COLORS, BLITZ_COLORS } from '@/game/constants'
 import { Button } from '@/components/ui/button'
 import { Trophy } from 'lucide-react'
 
@@ -75,6 +75,23 @@ function NextBallPreview({ ball }: { ball: Ball }) {
         }}
       >
         <SawbladeIcon />
+      </div>
+    )
+  }
+
+  // Blitz preview — plasma ball with static lightning arcs and pulse animation.
+  if (ball.kind === 'blitz') {
+    return (
+      <div
+        role="img"
+        aria-label="Next ball: blitz (clears matching color)"
+        className="flex items-center justify-center w-10 h-10 animate-pulse"
+        style={{
+          filter: `drop-shadow(0 0 8px ${BLITZ_COLORS.aura})`,
+          animationDuration: '1.6s',
+        }}
+      >
+        <BlitzIcon weight={ball.weight} />
       </div>
     )
   }
@@ -206,6 +223,28 @@ function RockIcon() {
       <line x1={cx} y1={cy} x2={cx + 2} y2={cy + 8} stroke={ROCK_COLORS.crack} strokeWidth="0.7" strokeLinecap="round" />
       <line x1={cx} y1={cy} x2={cx - 7} y2={cy - 4} stroke={ROCK_COLORS.crack} strokeWidth="0.7" strokeLinecap="round" />
       <circle cx={cx} cy={cy} r="1.1" fill={ROCK_COLORS.crack} />
+    </svg>
+  )
+}
+
+// SVG plasma ball for the next-ball preview when a blitz ball is queued.
+function BlitzIcon({ weight }: { weight: number }) {
+  return (
+    <svg viewBox="0 0 32 32" className="w-10 h-10" aria-hidden>
+      <defs>
+        <radialGradient id="blitzBody" cx="35%" cy="35%" r="70%">
+          <stop offset="0%" stopColor="#3A4580" />
+          <stop offset="50%" stopColor={BLITZ_COLORS.bodyMid} />
+          <stop offset="100%" stopColor={BLITZ_COLORS.bodyBase} />
+        </radialGradient>
+      </defs>
+      {/* Body */}
+      <circle cx="16" cy="16" r="13" fill="url(#blitzBody)" stroke={BLITZ_COLORS.arcDim} strokeWidth="0.8" />
+      {/* Lightning arcs */}
+      <polyline points="16,6 13,12 17,13 12,22" fill="none" stroke={BLITZ_COLORS.arcBright} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+      <polyline points="20,9 18,14 21,15 17,23" fill="none" stroke={BLITZ_COLORS.arcDim} strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round" opacity="0.6" />
+      {/* Weight label */}
+      <text x="16" y="17.5" textAnchor="middle" dominantBaseline="middle" fontSize="7" fontWeight="bold" fill={BLITZ_COLORS.arcBright} stroke={BLITZ_COLORS.bodyBase} strokeWidth="2" paintOrder="stroke">{weight}</text>
     </svg>
   )
 }
