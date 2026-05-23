@@ -17,8 +17,10 @@ export type Variant = 'full' | 'half'
 // Special balls bypass match mechanics and / or weight physics:
 //   - 'sawblade': weight 0, clears whole arm on landing
 //   - 'rock'    : weight 15, never matches; only sawblades can remove it
+//   - 'blitz'   : normal weight, triggers chain-lightning clear of all balls
+//                 of the topmost neighbor's color when it lands
 // The optional field keeps existing code working: missing/undefined == 'normal'.
-export type BallKind = 'normal' | 'sawblade' | 'rock'
+export type BallKind = 'normal' | 'sawblade' | 'rock' | 'blitz'
 
 export interface Ball {
   id: string
@@ -104,9 +106,27 @@ export interface GameState {
     side: 'left' | 'right'
     clearedBalls: Ball[]
   } | null
+  // Side-channel for the blitz (lightning ball) chain-clear animation.
+  // Carries the position of the blitz ball, the target color, and the IDs
+  // (with positions) of all balls being struck. The animation layer draws
+  // jagged lightning arcs from the blitz to each target before they dissolve.
+  // Shares `seq` with its originating drop.
+  pendingBlitz: {
+    seq: number
+    seesawIndex: number
+    side: 'left' | 'right'
+    targetColor: Color | null   // null when no neighbor was found (no effect)
+    clearedBalls: Array<{
+      ball: Ball
+      seesawIndex: number
+      side: 'left' | 'right'
+      stackIndex: number        // physical index in arm (0 = bottom)
+    }>
+  } | null
   // Ramp-up counters for special-ball spawning. Incremented each time a ball
   // is generated; reset to 0 when that special type spawns. Used by
   // createBall() to drive the linear ramp-up probability.
   ballsSinceSawblade: number
   ballsSinceRock: number
+  ballsSinceBlitz: number
 }

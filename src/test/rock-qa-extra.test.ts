@@ -36,8 +36,8 @@ function stateWith(seesaws: SeesawState[], nextBall: Ball, score = 0): GameState
     phase: 'waiting',
     hoverSeesaw: null, hoverSide: null,
     cranePositionIndex: 0,
-    pendingCatapult: null, pendingMatch: null, pendingSawblade: null,
-    ballsSinceSawblade: 0, ballsSinceRock: 0,
+    pendingCatapult: null, pendingMatch: null, pendingSawblade: null, pendingBlitz: null,
+    ballsSinceSawblade: 0, ballsSinceRock: 0, ballsSinceBlitz: 0,
   }
 }
 
@@ -368,7 +368,7 @@ describe('Rock identity & determinism', () => {
   it('every created rock has a unique id', () => {
     const ids = new Set<string>()
     for (let i = 0; i < 200; i++) {
-      const r = createBall(ROCK_MIN_SCORE + 100, 0, 0, { kind: 'rock' })
+      const r = createBall(ROCK_MIN_SCORE + 100, 0, 0, 0, { kind: 'rock' })
       ids.add(r.id)
     }
     expect(ids.size).toBe(200)

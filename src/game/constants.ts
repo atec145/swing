@@ -131,11 +131,35 @@ export const ROCK_WEIGHT = 15      // full tilt physics participation
 //
 // Sawblade: ~every 28 balls  →  MIN_GAP=16, TARGET_GAP=28 (guaranteed by 40)
 // Rock:     ~every 50 balls  →  MIN_GAP=30, TARGET_GAP=50 (guaranteed by 70)
+// Blitz:    ~every 40 balls  →  MIN_GAP=24, TARGET_GAP=40 (guaranteed by 56)
 // ---------------------------------------------------------------------------
 export const SAWBLADE_MIN_GAP    = 16
 export const SAWBLADE_TARGET_GAP = 28
 export const ROCK_MIN_GAP        = 30
 export const ROCK_TARGET_GAP     = 50
+export const BLITZ_MIN_GAP       = 24
+export const BLITZ_TARGET_GAP    = 40
+
+// ---------------------------------------------------------------------------
+// Blitz (Blitzkugel / lightning ball) special ball — Issue #13
+//
+// A transparent plasma-orb that lands like a normal weighted ball. On impact
+// it picks the color of the topmost matchable neighbor (in the same column)
+// and triggers a chain-lightning clear of every ball of that color on the
+// whole board. The blitz ball itself remains on the arm (it is not consumed).
+// Visually: dark-blue/translucent body with animated white-blue arcs inside,
+// electric outer glow. On trigger: bright flash + jagged lightning arcs to
+// each target ball before they dissolve.
+// ---------------------------------------------------------------------------
+export const BLITZ_MIN_SCORE = 800           // appears only after this score
+// Plasma orb palette — used by both renderer and the preview SVG.
+export const BLITZ_COLORS = {
+  bodyBase:    '#1A1F3A',   // deep navy translucent base
+  bodyMid:     '#2A3760',   // mid plasma glow
+  arcBright:   '#E0EFFF',   // white-blue arc core
+  arcDim:      '#7AAEFF',   // arc tail / outer glow
+  aura:        'rgba(120,170,255,0.55)',
+} as const
 
 // Earth-brown palette used by both renderer (drawRock) and particle FX
 // (rock-fragment) — kept in one place so renderer + GameCanvas stay in sync.

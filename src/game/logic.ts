@@ -1,6 +1,7 @@
 import type {
   Ball,
   CatapultEvent,
+  Color,
   GameState,
   MatchGroup,
   SeesawState,
@@ -19,6 +20,9 @@ import {
   SAWBLADE_TARGET_GAP,
   ROCK_MIN_GAP,
   ROCK_TARGET_GAP,
+  BLITZ_MIN_GAP,
+  BLITZ_TARGET_GAP,
+  BLITZ_MIN_SCORE,
 } from './constants'
 import { totalWeight, computeAngle, computeTilt } from './physics'
 
@@ -53,10 +57,17 @@ function rampSpawn(ballsSince: number, minGap: number, targetGap: number): boole
   return Math.random() < Math.min(1, (ballsSince - minGap) / range)
 }
 
-// `sawbladeSince` / `rockSince` — balls generated since each type last spawned.
-// Callers pass the current counter from GameState; defaults of 0 mean the
-// special ball is not yet due (used for initial state and tests that override kind).
-export function createBall(score = 0, sawbladeSince = 0, rockSince = 0, override?: Partial<Ball>): Ball {
+// `sawbladeSince` / `rockSince` / `blitzSince` — balls generated since each
+// type last spawned. Callers pass the current counter from GameState; defaults
+// of 0 mean the special ball is not yet due (used for initial state and tests
+// that override kind).
+export function createBall(
+  score = 0,
+  sawbladeSince = 0,
+  rockSince = 0,
+  blitzSince = 0,
+  override?: Partial<Ball>,
+): Ball {
   // Sawblade roll — always runs first so the dice are independent of color choice.
   if (
     !override?.kind &&
@@ -85,6 +96,25 @@ export function createBall(score = 0, sawbladeSince = 0, rockSince = 0, override
       variant: 'full',      // dummy
       weight: ROCK_WEIGHT,  // heavy: tilts the seesaw aggressively
       kind: 'rock',
+      ...override,
+    }
+  }
+
+  // Blitz roll — runs only when neither sawblade nor rock fired. Blitzkugel
+  // gets a random normal weight so it participates in seesaw physics like a
+  // regular ball; its `color` is unused (renderer dispatches on `kind`).
+  if (
+    !override?.kind &&
+    score >= BLITZ_MIN_SCORE &&
+    rampSpawn(blitzSince, BLITZ_MIN_GAP, BLITZ_TARGET_GAP)
+  ) {
+    const weight = WEIGHT_POOL[Math.floor(Math.random() * WEIGHT_POOL.length)]
+    return {
+      id: `b${++ballIdCounter}`,
+      color: 'green',     // dummy — not used for blitz rendering
+      variant: 'full',    // dummy — not used for blitz rendering
+      weight,
+      kind: 'blitz',
       ...override,
     }
   }
@@ -127,8 +157,10 @@ export function createInitialState(): GameState {
     pendingCatapult: null,
     pendingMatch: null,
     pendingSawblade: null,
+    pendingBlitz: null,
     ballsSinceSawblade: 0,
     ballsSinceRock: 0,
+    ballsSinceBlitz: 0,
   }
 }
 
@@ -429,6 +461,88 @@ export interface DropResult {
     side: 'left' | 'right'
     clearedBalls: Ball[]
   }
+  // Side-channel for blitz (lightning ball) drops: which color was struck
+  // and which balls were chain-cleared from the entire board. undefined for
+  // non-blitz drops or when the blitz had no effect (landed on empty arm).
+  blitzEvent?: {
+    seesawIndex: number
+    side: 'left' | 'right'
+    targetColor: Color | null
+    clearedBalls: Array<{
+      ball: Ball
+      seesawIndex: number
+      side: 'left' | 'right'
+      stackIndex: number
+    }>
+  }
+}
+
+// Determines the chain-lightning target color when a blitz ball just landed.
+// Strategy: scan the SAME-column arm (where the blitz now sits) from the
+// blitz position downward — the first non-blitz, non-rock ball encountered
+// supplies the target color. Rocks act as visual gaps (they are immune); we
+// look past them. Returns null when no eligible neighbor exists (landed on
+// an empty arm, or only blitz/rock balls below).
+function findBlitzTargetColor(
+  arm: Ball[],
+  blitzStackIndex: number,
+): Color | null {
+  // blitzStackIndex is the position the blitz ball occupies (last index).
+  // We look at every ball below (stackIndex < blitzStackIndex), top-first,
+  // skipping rocks and other blitz balls (blitzes are immune to each other).
+  for (let i = blitzStackIndex - 1; i >= 0; i--) {
+    const b = arm[i]
+    if (b.kind === 'rock' || b.kind === 'blitz') continue
+    return b.color
+  }
+  return null
+}
+
+// Builds the chain-clear event for a freshly landed blitz ball. Sweeps the
+// whole board for balls of the target color and returns their positions.
+// The blitz ball itself is NOT consumed; neither rocks nor other blitz balls
+// are affected. Returns null targetColor when the blitz had no neighbor.
+function processBlitzClear(
+  seesaws: SeesawState[],
+  blitzSeesawIdx: number,
+  blitzSide: 'left' | 'right',
+): {
+  targetColor: Color | null
+  clearedBalls: Array<{
+    ball: Ball
+    seesawIndex: number
+    side: 'left' | 'right'
+    stackIndex: number
+  }>
+} {
+  const blitzArm = seesaws[blitzSeesawIdx][blitzSide]
+  // Blitz ball is the topmost ball on the arm (just landed).
+  const blitzStackIndex = blitzArm.length - 1
+  const targetColor = findBlitzTargetColor(blitzArm, blitzStackIndex)
+  if (targetColor === null) {
+    return { targetColor: null, clearedBalls: [] }
+  }
+
+  const clearedBalls: Array<{
+    ball: Ball
+    seesawIndex: number
+    side: 'left' | 'right'
+    stackIndex: number
+  }> = []
+  for (let si = 0; si < seesaws.length; si++) {
+    for (const side of ['left', 'right'] as const) {
+      const arm = seesaws[si][side]
+      for (let h = 0; h < arm.length; h++) {
+        const b = arm[h]
+        // Skip special balls — blitz only affects normal balls of the target color.
+        if (b.kind === 'rock' || b.kind === 'blitz' || b.kind === 'sawblade') continue
+        if (b.color === targetColor) {
+          clearedBalls.push({ ball: b, seesawIndex: si, side, stackIndex: h })
+        }
+      }
+    }
+  }
+  return { targetColor, clearedBalls }
 }
 
 export function dropBall(
@@ -465,7 +579,8 @@ export function dropBall(
     const newScore = state.score + bonus
     const newSawbladeSince = state.ballsSinceSawblade + 1
     const newRockSince = state.ballsSinceRock + 1
-    const newQueuedBall = createBall(newScore, newSawbladeSince, newRockSince)
+    const newBlitzSince = state.ballsSinceBlitz + 1
+    const newQueuedBall = createBall(newScore, newSawbladeSince, newRockSince, newBlitzSince)
     return {
       state: {
         ...state,
@@ -476,6 +591,7 @@ export function dropBall(
         phase: isGameOver(seesaws) ? 'gameover' : 'waiting',
         ballsSinceSawblade: newQueuedBall.kind === 'sawblade' ? 0 : newSawbladeSince,
         ballsSinceRock: newQueuedBall.kind === 'rock' ? 0 : newRockSince,
+        ballsSinceBlitz: newQueuedBall.kind === 'blitz' ? 0 : newBlitzSince,
       },
       catapultEvents: [],
       preCatapultSeesaws: state.seesaws,
@@ -510,6 +626,53 @@ export function dropBall(
   )
   let seesaws = catapultResult.seesaws
 
+  // Blitzkugel chain-clear. Runs BEFORE normal match-scanning so the chain-
+  // lightning sweep can clear the field; afterwards the regular cascade kicks
+  // in (so a blitz-revealed match still scores). The blitz ball itself stays
+  // on the arm. We must locate the blitz ball's CURRENT position because
+  // catapult resolution above may have moved/wrapped it (rare but possible).
+  let blitzEvent: DropResult['blitzEvent']
+  let blitzClearBonus = 0
+  if (ball.kind === 'blitz') {
+    // Find the freshly-landed blitz ball on the board.
+    let blitzPos: { si: number; side: 'left' | 'right' } | null = null
+    outer: for (let si = 0; si < seesaws.length; si++) {
+      for (const sd of ['left', 'right'] as const) {
+        const arm = seesaws[si][sd]
+        for (let h = 0; h < arm.length; h++) {
+          if (arm[h].id === ball.id) {
+            blitzPos = { si, side: sd }
+            break outer
+          }
+        }
+      }
+    }
+    if (blitzPos) {
+      const { targetColor, clearedBalls } = processBlitzClear(
+        seesaws,
+        blitzPos.si,
+        blitzPos.side,
+      )
+      blitzEvent = {
+        seesawIndex: blitzPos.si,
+        side: blitzPos.side,
+        targetColor,
+        clearedBalls,
+      }
+      if (clearedBalls.length > 0) {
+        const toRemove = new Set(clearedBalls.map(c => c.ball.id))
+        seesaws = removeAndRecalc(seesaws, toRemove)
+        // Same scoring formula as normal match clears.
+        blitzClearBonus =
+          Math.floor(clearedBalls.length / MATCH_MIN) * 50 + clearedBalls.length * 10
+      }
+    } else {
+      // Blitz ball was lost (e.g. ejected off-board by catapult chain).
+      // No effect.
+      blitzEvent = undefined
+    }
+  }
+
   // Cascade matches. Each round records a MatchGroup: the board snapshot
   // *before* the removal plus the ball IDs that vanish, so the animation
   // layer can replay the dissolve while the logic state is already final.
@@ -528,10 +691,11 @@ export function dropBall(
 
   const matchBonus = totalRemoved > 0 ? Math.floor(totalRemoved / MATCH_MIN) * 50 + totalRemoved * 10 : 0
   const phase = isGameOver(seesaws) ? 'gameover' : 'waiting'
-  const newScore = state.score + matchBonus
+  const newScore = state.score + matchBonus + blitzClearBonus
   const newSawbladeSince = state.ballsSinceSawblade + 1
   const newRockSince = state.ballsSinceRock + 1
-  const newQueuedBall = createBall(newScore, newSawbladeSince, newRockSince)
+  const newBlitzSince = state.ballsSinceBlitz + 1
+  const newQueuedBall = createBall(newScore, newSawbladeSince, newRockSince, newBlitzSince)
 
   return {
     state: {
@@ -543,9 +707,11 @@ export function dropBall(
       phase,
       ballsSinceSawblade: newQueuedBall.kind === 'sawblade' ? 0 : newSawbladeSince,
       ballsSinceRock: newQueuedBall.kind === 'rock' ? 0 : newRockSince,
+      ballsSinceBlitz: newQueuedBall.kind === 'blitz' ? 0 : newBlitzSince,
     },
     catapultEvents: catapultResult.events,
     preCatapultSeesaws,
     matchGroups,
+    blitzEvent,
   }
 }

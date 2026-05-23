@@ -26,8 +26,10 @@ function stateWith(seesaws: SeesawState[], nextBall: Ball, score = 0): GameState
     pendingCatapult: null,
     pendingMatch: null,
     pendingSawblade: null,
+    pendingBlitz: null,
     ballsSinceSawblade: 0,
     ballsSinceRock: 0,
+    ballsSinceBlitz: 0,
   }
 }
 
