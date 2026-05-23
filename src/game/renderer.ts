@@ -1206,7 +1206,20 @@ function drawCatapultBall(
   ball: Ball,
   rotation: number,
   alpha: number,
+  blitzT = 0,
 ) {
+  if (ball.kind === 'blitz') {
+    // Plasma ball — no rotation (spherically symmetric); uses real blitzT for arc animation.
+    drawBlitz(ctx, x, y, blitzT, ball.weight, alpha, ball.charged !== false)
+    return
+  }
+  if (ball.kind === 'sawblade') {
+    ctx.save()
+    ctx.globalAlpha = alpha
+    drawSawblade(ctx, x, y, rotation)
+    ctx.restore()
+    return
+  }
   ctx.save()
   ctx.translate(x, y)
   ctx.rotate(rotation)
@@ -1349,7 +1362,7 @@ export function render(
   // Catapulted ball mid-flight — above seesaws, below the crane.
   if (craneAnim?.catapultBall) {
     const cb = craneAnim.catapultBall
-    drawCatapultBall(ctx, cb.x, cb.y, cb.ball, cb.rotation, cb.alpha)
+    drawCatapultBall(ctx, cb.x, cb.y, cb.ball, cb.rotation, cb.alpha, craneAnim.blitzAnimT ?? 0)
   }
 
   // Grinding sawblade — on top of remaining balls, below particles.
