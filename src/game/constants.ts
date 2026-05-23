@@ -139,11 +139,13 @@ export const ROCK_TARGET_GAP     = 50
 
 // Earth-brown palette used by both renderer (drawRock) and particle FX
 // (rock-fragment) — kept in one place so renderer + GameCanvas stay in sync.
+// Warm gray-brown stone palette — granite-like, not gold/ochre. Used by both
+// the rock renderer and the rock-fragment particles when a sawblade hits one.
 export const ROCK_COLORS = {
-  base:      '#8B6914',
-  highlight: '#C4952A',
-  shadow:    '#5C4A1E',
-  crack:     '#3D2B0A',
+  base:      '#7E7466',
+  highlight: '#BFB298',
+  shadow:    '#403930',
+  crack:     '#221A12',
 } as const
 
 export const DIFFICULTY_TIERS: DifficultyTier[] = [
