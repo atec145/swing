@@ -5,17 +5,21 @@ import type { Ball } from '@/game/types'
 import { COLOR_HEX, COLOR_GLOW } from '@/game/constants'
 import { drawBall, drawBlitz, drawRock, drawSawblade } from '@/game/renderer'
 import { Button } from '@/components/ui/button'
-import { Trophy } from 'lucide-react'
+import { Trophy, Volume2, VolumeX } from 'lucide-react'
 
 interface Props {
   score: number
   nextBall: Ball
   phase: 'waiting' | 'gameover'
+  isMuted: boolean
+  onToggleMute: () => void
   onRestart: () => void
   onShowHighscores: () => void
 }
 
-export default function GameUI({ score, nextBall, phase, onRestart, onShowHighscores }: Props) {
+export default function GameUI({
+  score, nextBall, phase, isMuted, onToggleMute, onRestart, onShowHighscores,
+}: Props) {
   return (
     <div className="flex items-center justify-between px-2 py-3 select-none">
       {/* Score */}
@@ -28,6 +32,15 @@ export default function GameUI({ score, nextBall, phase, onRestart, onShowHighsc
             className="text-slate-600 hover:text-slate-400 transition-colors"
           >
             <Trophy size={12} />
+          </button>
+          <button
+            onClick={onToggleMute}
+            aria-label={isMuted ? 'Ton einschalten' : 'Ton ausschalten'}
+            aria-pressed={isMuted}
+            title={isMuted ? 'Ton einschalten' : 'Ton ausschalten'}
+            className="text-slate-600 hover:text-slate-400 transition-colors"
+          >
+            {isMuted ? <VolumeX size={12} /> : <Volume2 size={12} />}
           </button>
         </div>
         <p className="text-3xl font-bold text-white tabular-nums">{score.toLocaleString()}</p>

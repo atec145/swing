@@ -43,13 +43,17 @@ interface Props {
   score: number
   onClose: () => void
   onRestart: () => void
+  /** Fired once a Top-N entry is successfully POSTed — used to play the bell sound. */
+  onHighscoreSubmitted?: () => void
   viewOnly?: boolean
 }
 
 // Allowed name chars (mirrors highscoreInsertSchema NAME_PATTERN).
 const NAME_PATTERN = /^[\p{L}\p{N} _-]+$/u
 
-export default function HighscoreModal({ open, score, onClose, onRestart, viewOnly = false }: Props) {
+export default function HighscoreModal({
+  open, score, onClose, onRestart, onHighscoreSubmitted, viewOnly = false,
+}: Props) {
   const { highscores, loading, error, submitting, submitError, refetch, submit } =
     useHighscores()
 
@@ -93,7 +97,11 @@ export default function HighscoreModal({ open, score, onClose, onRestart, viewOn
     e.preventDefault()
     if (!nameValid || submitting) return
     const row = await submit(trimmed, score)
-    if (row) setSubmittedRow(row)
+    if (row) {
+      setSubmittedRow(row)
+      // Celebratory bell — only when the entry actually made it onto the board.
+      onHighscoreSubmitted?.()
+    }
   }
 
   function handleSkip() {

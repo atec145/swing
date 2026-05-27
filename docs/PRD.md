@@ -37,6 +37,7 @@ Their core need: a satisfying, low-friction puzzle loop that rewards clever plac
 | P2 | Mobile/touch support — tap targets sized for phone screens | Planned |
 | P1 | Special Ball: Sägeblatt — rotierendes Sägeblatt cleared komplette Arm-Spalte mit Partikeleffekten (#11) | Planned |
 | P2 | Anonyme Nutzungsstatistik — Session-Tracking (Spielanzahl, Score, Dauer) via Supabase (#14) | Planned |
+| P1 | Sound Effects — physikalisch-realistische Klangkulisse via Web Audio API, Mute-Button (#15) | Planned |
 
 ## Success Metrics
 

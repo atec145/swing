@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import GameCanvas from './GameCanvas'
 import GameUI from './GameUI'
 import HighscoreModal from './HighscoreModal'
 import { useGameState } from '@/hooks/useGameState'
 import { useTracking } from '@/hooks/useTracking'
+import { useSoundEngine } from '@/hooks/useSoundEngine'
 
 export default function SwingGame() {
   const {
@@ -24,6 +25,21 @@ export default function SwingGame() {
   // POST /api/track per game-over, swallowing all errors so it can never
   // disturb gameplay.
   useTracking({ phase: gameState.phase, score: gameState.score })
+
+  // Sound engine (issue #15). Observes the game state and synthesises sound
+  // effects via the Web Audio API. Lazy: AudioContext is only created after
+  // the first user interaction (browser autoplay policy).
+  const { isMuted, toggleMute, playHighscore, notifyDrop } = useSoundEngine(gameState)
+
+  // Wraps handleDrop so a synchronous user-gesture handler triggers the drop
+  // sound — this is the first place the AudioContext is allowed to be unlocked.
+  const onDrop = useCallback((seesawIndex: number, side: 'left' | 'right') => {
+    // Reading nextBall before dispatching is safe — the reducer doesn't change
+    // it until the dropBall logic runs synchronously inside dispatch.
+    const kind = gameState.nextBall.kind ?? 'normal'
+    notifyDrop(kind)
+    handleDrop(seesawIndex, side)
+  }, [gameState.nextBall.kind, notifyDrop, handleDrop])
 
   // Highscore modal: opens on game-over, closes on restart/manual dismiss.
   // We use a separate state (rather than driving directly off `phase`) so the
@@ -49,7 +65,7 @@ export default function SwingGame() {
     <div className="w-full max-w-[900px] rounded-2xl overflow-hidden border border-slate-800 shadow-2xl shadow-black/60 bg-[#0D0F1A]">
       <GameCanvas
         gameState={gameState}
-        onDrop={handleDrop}
+        onDrop={onDrop}
         onCraneMove={handleCraneMove}
         onCraneSetPosition={handleCraneSet}
         onConsumeCatapult={handleConsumeCatapult}
@@ -63,6 +79,8 @@ export default function SwingGame() {
           score={gameState.score}
           nextBall={gameState.queuedBall}
           phase={gameState.phase}
+          isMuted={isMuted}
+          onToggleMute={toggleMute}
           onRestart={handleRestart}
           onShowHighscores={handleShowHighscores}
         />
@@ -73,6 +91,7 @@ export default function SwingGame() {
         score={gameState.score}
         onClose={() => setShowHighscores(false)}
         onRestart={handleRestart}
+        onHighscoreSubmitted={playHighscore}
         viewOnly={highscoresViewOnly}
       />
     </div>
