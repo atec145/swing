@@ -5,6 +5,7 @@ import GameCanvas from './GameCanvas'
 import GameUI from './GameUI'
 import HighscoreModal from './HighscoreModal'
 import { useGameState } from '@/hooks/useGameState'
+import { useTracking } from '@/hooks/useTracking'
 
 export default function SwingGame() {
   const {
@@ -18,6 +19,11 @@ export default function SwingGame() {
     handleConsumeBlitz,
     handleRestart,
   } = useGameState()
+
+  // Anonymous usage analytics (issue #14). Silent side-channel: fires one
+  // POST /api/track per game-over, swallowing all errors so it can never
+  // disturb gameplay.
+  useTracking({ phase: gameState.phase, score: gameState.score })
 
   // Highscore modal: opens on game-over, closes on restart/manual dismiss.
   // We use a separate state (rather than driving directly off `phase`) so the

@@ -36,6 +36,7 @@ Their core need: a satisfying, low-friction puzzle loop that rewards clever plac
 | P1 | Match dissolve animation — Star Trek transporter beam effect when balls are cleared (#5) | Planned |
 | P2 | Mobile/touch support — tap targets sized for phone screens | Planned |
 | P1 | Special Ball: Sägeblatt — rotierendes Sägeblatt cleared komplette Arm-Spalte mit Partikeleffekten (#11) | Planned |
+| P2 | Anonyme Nutzungsstatistik — Session-Tracking (Spielanzahl, Score, Dauer) via Supabase (#14) | Planned |
 
 ## Success Metrics
 
