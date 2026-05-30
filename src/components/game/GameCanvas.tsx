@@ -12,6 +12,7 @@ import {
   render,
   craneXForIndex,
   slotAnchor,
+  clearSpriteCache,
   type CraneAnim,
   type DissolveAnim,
   type SawbladeParticle,
@@ -394,6 +395,16 @@ export default function GameCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef<number>(0)
 
+  // --- Render-on-demand loop control (Issue #16) ---
+  // The RAF loop only runs while something is actually animating OR a one-off
+  // redraw is pending (dirty). In the idle state the loop pauses entirely, so
+  // there is no per-frame CPU cost while the player is just thinking.
+  const loopRunningRef = useRef(false)   // is requestAnimationFrame currently scheduled?
+  const dirtyRef = useRef(true)          // needs at least one more frame drawn?
+  // schedule() is assigned inside the RAF effect (it owns the tick closure) and
+  // called from event handlers / effects to wake the loop after a state change.
+  const scheduleRef = useRef<() => void>(() => {})
+
   const stateRef = useRef(gameState)
   stateRef.current = gameState
 
@@ -564,6 +575,31 @@ export default function GameCanvas({
     return a.blitzPhase !== 'idle' || a.blitzPending || a.blitzVisualSeesaws !== null
   }, [])
 
+  // True when nothing in the animation state needs another frame. When this
+  // holds at the end of a tick, the loop draws one final idle frame and pauses.
+  const isIdle = useCallback(() => {
+    const a = animRef.current
+    return (
+      !a.isMoving &&
+      !a.isReleasing &&
+      !a.queuedDrop &&
+      a.fallingBall === null &&
+      !isAnimatingCatapult() &&
+      a.catapultEvents.length === 0 &&
+      a.dissolveSeq === null &&
+      !isAnimatingDissolve() &&
+      !isAnimatingSawblade() &&
+      a.sawbladeParticles.length === 0 &&
+      !isAnimatingBlitz()
+    )
+  }, [isAnimatingCatapult, isAnimatingDissolve, isAnimatingSawblade, isAnimatingBlitz])
+
+  // Marks the canvas dirty (needs a redraw) and wakes the RAF loop if paused.
+  const requestRedraw = useCallback(() => {
+    dirtyRef.current = true
+    scheduleRef.current()
+  }, [])
+
   // Input is locked while releasing, while a ball falls, while a catapult
   // chain is replaying, while a match dissolve is animating, OR while a
   // special effect is running.
@@ -580,6 +616,13 @@ export default function GameCanvas({
   }, [isAnimatingCatapult, isAnimatingDissolve, isAnimatingSawblade, isAnimatingBlitz])
 
   const targetCraneX = useCallback((posIndex: number) => craneXForIndex(posIndex), [])
+
+  // Any change to the rendered game state requires at least one redraw. This
+  // catch-all wakes the (possibly paused) RAF loop after every reducer update —
+  // hover, score, next ball, phase, pending events, crane position, etc.
+  useEffect(() => {
+    requestRedraw()
+  }, [gameState, requestRedraw])
 
   // React to crane position / restart coming from props.
   useEffect(() => {
@@ -626,6 +669,9 @@ export default function GameCanvas({
       a.blitzVisualSeesaws = null
       a.blitzTargets = []
       a.blitzFinishSeq = null
+      // Release cached rock sprites — old balls are gone after a restart, so
+      // their offscreen surfaces would otherwise leak across games.
+      clearSpriteCache()
       return
     }
 
@@ -753,6 +799,17 @@ export default function GameCanvas({
 
     let running = true
 
+    // Starts the RAF loop if it isn't already running. Idempotent — safe to
+    // call from any event handler / effect to wake the loop after a change.
+    const schedule = () => {
+      if (!running) return
+      if (loopRunningRef.current) return
+      if (document.hidden) return  // stay paused while tab is hidden
+      loopRunningRef.current = true
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    scheduleRef.current = schedule
+
     const startNextSegmentOrEvent = (now: number) => {
       const a = animRef.current
       if (!a.catapultVisual) return
@@ -839,7 +896,10 @@ export default function GameCanvas({
     let frameCount = 0
 
     const tick = () => {
-      if (!running) return
+      if (!running) {
+        loopRunningRef.current = false
+        return
+      }
       const a = animRef.current
       const now = performance.now()
       frameCount++
@@ -1258,6 +1318,17 @@ export default function GameCanvas({
           }
         }
       }
+
+      // This frame has been drawn — clear the one-off dirty flag.
+      dirtyRef.current = false
+
+      // Render-on-demand: keep looping only while something is still animating
+      // or a redraw was requested since this frame started. Otherwise pause —
+      // the next state change / hover / tab-return will wake us via schedule().
+      if (isIdle() && !dirtyRef.current) {
+        loopRunningRef.current = false
+        return
+      }
       rafRef.current = requestAnimationFrame(tick)
     }
 
@@ -1275,34 +1346,50 @@ export default function GameCanvas({
       a.pendingDrop = { seesawIndex, side }
       a.isReleasing = true
       a.releaseStartT = performance.now()
+      schedule()  // wake the loop — a release animation just started
     }
 
     ;(animRef.current as unknown as { _triggerRelease: () => void })._triggerRelease = triggerRelease
 
-    rafRef.current = requestAnimationFrame(tick)
+    // Initial paint — draw once, then the loop pauses if nothing is animating.
+    dirtyRef.current = true
+    schedule()
     return () => {
       running = false
+      loopRunningRef.current = false
       cancelAnimationFrame(rafRef.current)
     }
-  }, [isAnimatingCatapult, isAnimatingDissolve, isAnimatingSawblade, isAnimatingBlitz])
+  }, [isAnimatingCatapult, isAnimatingDissolve, isAnimatingSawblade, isAnimatingBlitz, isIdle])
 
-  // Tab-visibility skip: if the tab is hidden mid-dissolve, snap to the final
-  // state immediately (balls already removed in logic) — no stuck animation.
+  // Tab-visibility handling (Issue #16):
+  //  - Hidden: stop the RAF loop entirely (zero CPU while backgrounded). If a
+  //    dissolve was mid-flight, snap it to the final state (balls already
+  //    removed in logic) so we don't return to a stuck animation.
+  //  - Visible: redraw the current state immediately and resume the loop only
+  //    if something is still animating (schedule() + dirty flag handle this).
   useEffect(() => {
     const onVisibility = () => {
-      if (!document.hidden) return
-      const a = animRef.current
-      if (a.dissolveSeq === null && a.dissolveVisual === null) return
-      const finishSeq = a.dissolveFinishSeq ?? a.dissolveSeq
-      a.dissolveGroups = []
-      a.dissolveVisual = null
-      a.dissolveBallIds = new Set()
-      a.dissolveFinishSeq = null
-      if (finishSeq !== null) onConsumeMatchRef.current(finishSeq)
+      if (document.hidden) {
+        // Stop the loop; tick won't re-arm and schedule() bails while hidden.
+        loopRunningRef.current = false
+        cancelAnimationFrame(rafRef.current)
+
+        const a = animRef.current
+        if (a.dissolveSeq === null && a.dissolveVisual === null) return
+        const finishSeq = a.dissolveFinishSeq ?? a.dissolveSeq
+        a.dissolveGroups = []
+        a.dissolveVisual = null
+        a.dissolveBallIds = new Set()
+        a.dissolveFinishSeq = null
+        if (finishSeq !== null) onConsumeMatchRef.current(finishSeq)
+        return
+      }
+      // Returned to foreground — paint current state and resume if needed.
+      requestRedraw()
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [])
+  }, [requestRedraw])
 
   // Keyboard input
   useEffect(() => {
@@ -1338,6 +1425,7 @@ export default function GameCanvas({
           const a = animRef.current
           if (a.isMoving) {
             a.queuedDrop = true
+            requestRedraw()
           } else {
             const trigger = (animRef.current as unknown as { _triggerRelease: () => void })._triggerRelease
             trigger?.()
@@ -1349,7 +1437,7 @@ export default function GameCanvas({
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onCraneMove, onRestart, isInputLocked])
+  }, [onCraneMove, onRestart, isInputLocked, requestRedraw])
 
   // Non-passive touch handler so we can preventDefault and block page scroll.
   // React's synthetic onTouchStart is passive by default, so we register natively.

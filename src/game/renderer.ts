@@ -444,9 +444,99 @@ function rockPolygon(id: string): RockGeometry {
   return { vertices, patches, grains, moss, cracks, dimples }
 }
 
+// ---------------------------------------------------------------------------
+// Rock sprite cache (Issue #16 — performance)
+//
+// drawRock issues ~50+ canvas commands (clip, multiple radial gradients,
+// 30 grain dots, cracks, dimples, rim AO, rim light, specular, outline).
+// A rock's appearance is fully determined by its ball.id and never changes,
+// so we render it ONCE into an offscreen sprite and blit it with a single
+// drawImage() on every subsequent frame.
+//
+// Falls back to direct rendering on browsers without OffscreenCanvas
+// (or a <canvas> equivalent), so there is never a crash.
+// ---------------------------------------------------------------------------
+
+// Padding around the rock so its drop shadow / glow isn't clipped by the sprite edge.
+const ROCK_SPRITE_PAD = 16
+// Internal supersampling factor — keeps the cached sprite crisp at the
+// canvas's CSS scale-up without re-rendering vector geometry each frame.
+const ROCK_SPRITE_SCALE = 2
+
+const rockSpriteCache = new Map<string, HTMLCanvasElement | OffscreenCanvas>()
+
+// Clears every cached rock sprite. Call on restart so sprites for balls that
+// no longer exist are released (prevents an unbounded cache / memory leak).
+export function clearSpriteCache() {
+  rockSpriteCache.clear()
+}
+
+// Creates an offscreen drawing surface, preferring OffscreenCanvas and
+// falling back to a detached <canvas>. Returns null if neither is available.
+function createOffscreen(w: number, h: number): HTMLCanvasElement | OffscreenCanvas | null {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    try {
+      return new OffscreenCanvas(w, h)
+    } catch {
+      /* fall through to <canvas> */
+    }
+  }
+  if (typeof document !== 'undefined') {
+    const c = document.createElement('canvas')
+    c.width = w
+    c.height = h
+    return c
+  }
+  return null
+}
+
+// Returns the cached rock sprite for `ballId`, rendering it once on first use.
+// Returns null if no offscreen surface is available (caller renders directly).
+function getRockSprite(ballId: string): HTMLCanvasElement | OffscreenCanvas | null {
+  const cached = rockSpriteCache.get(ballId)
+  if (cached) return cached
+
+  const size = (BALL_RADIUS + ROCK_SPRITE_PAD) * 2 * ROCK_SPRITE_SCALE
+  const surface = createOffscreen(size, size)
+  if (!surface) return null
+
+  const sctx = surface.getContext('2d') as CanvasRenderingContext2D | null
+  if (!sctx) return null
+
+  sctx.scale(ROCK_SPRITE_SCALE, ROCK_SPRITE_SCALE)
+  // Render the rock at the sprite center (full opacity — alpha applied at blit time).
+  drawRockGeometry(sctx, BALL_RADIUS + ROCK_SPRITE_PAD, BALL_RADIUS + ROCK_SPRITE_PAD, ballId, 1)
+  rockSpriteCache.set(ballId, surface)
+  return surface
+}
+
 // Draws an irregular brown rock at (x, y). Deterministic per ball.id so the
-// same rock keeps its silhouette across frames.
+// same rock keeps its silhouette across frames. Backed by an offscreen sprite
+// cache (one render per ball.id, then cheap blits) — see getRockSprite.
 export function drawRock(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  ballId: string,
+  alpha = 1,
+) {
+  const sprite = getRockSprite(ballId)
+  if (sprite) {
+    const half = BALL_RADIUS + ROCK_SPRITE_PAD
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.drawImage(sprite as CanvasImageSource, x - half, y - half, half * 2, half * 2)
+    ctx.restore()
+    return
+  }
+  // No offscreen support — render directly (identical output, no crash).
+  drawRockGeometry(ctx, x, y, ballId, alpha)
+}
+
+// The actual vector drawing of a rock. Used to render into the sprite cache
+// (and as the no-OffscreenCanvas fallback path). Output is identical to the
+// pre-cache implementation.
+function drawRockGeometry(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
