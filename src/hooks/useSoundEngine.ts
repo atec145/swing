@@ -170,9 +170,12 @@ export function useSoundEngine(gameState: GameState): UseSoundEngineResult {
     if (kind === 'rock') {
       schedule(playRockThud)
     } else {
-      // Sawblade and blitz also produce a metallic landing thud; their
-      // signature sounds are layered on top by the event watchers below.
+      // Sawblade and blitz produce a metallic thud; their signature sounds are
+      // layered on top by the event watchers below.
       schedule(playBallDrop)
+      // Layer the seesaw click for normal drops so ball-on-ball and
+      // ball-on-empty-seesaw always sound the same (rich metal clink).
+      if (kind === 'normal') schedule(playSeesawTilt)
     }
   }, [schedule])
 

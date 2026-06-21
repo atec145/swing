@@ -153,10 +153,10 @@ export function playSawbladeWhine(
 }
 
 // =========================================================================
-// 7. Sawblade grind — metallic scrape per cleared ball
+// 7. Sawblade grind — metallic scrape per cleared ball (~0.45 s WAV)
 // =========================================================================
 export function playSawbladeGrind(ctx: AudioContext, out: GainNode, when: number): SoundHandle {
-  return playSound(ctx, out, 'sawblade_grind', when, 0.65)
+  return playSound(ctx, out, 'sawblade_grind', when, 0.65, 0.40)
 }
 
 // =========================================================================
