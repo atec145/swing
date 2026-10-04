@@ -96,9 +96,11 @@ export const WEIGHT_POOL = [
 // At most ONE new color (full OR half) unlocks per threshold, so the ramp
 // has no simultaneous unlocks and no large dead zones:
 //
-//   gaps: 400 600 800 1000 1200 1400 1600 1800 2000 2200 2400
-//   — gradual linear growth, not exponential. Peak (8 full + 8 half)
-//   is only reached at 15400.
+//   gaps: 1500 1500 2000 1900 2000 2500 3000 3500 4000 4500 5000
+//   A match is worth ~80–90 points, so the former 500/1200/2100 colour steps
+//   hit after ~6/14/24 matches — too early to settle in. The 5-colour phase
+//   now lasts to 1500; half balls keep their spacing, shifted by +2900
+//   (Issue #18). Peak (8 full + 8 half) is only reached at 31400.
 //
 // Reached when score >= minScore. Pick the highest tier whose minScore <=
 // current score.
@@ -117,7 +119,9 @@ export interface DifficultyTier {
 // immune to color matches. Only the sawblade can clear it. High weight
 // forces strategic decisions: drop it carefully or have a sawblade ready.
 // ---------------------------------------------------------------------------
-export const ROCK_MIN_SCORE = 500  // appears only after this score
+// Well after the 6th colour (1500) so two difficulty steps never land
+// together — rocks used to share the 500 threshold (Issue #18).
+export const ROCK_MIN_SCORE = 2200  // appears only after this score
 export const ROCK_WEIGHT = 15      // full tilt physics participation
 
 // ---------------------------------------------------------------------------
@@ -174,15 +178,15 @@ export const ROCK_COLORS = {
 
 export const DIFFICULTY_TIERS: DifficultyTier[] = [
   { minScore: 0,     activeColors: 5, activeHalfColors: 0 }, // base — original-game floor
-  { minScore: 500,   activeColors: 6, activeHalfColors: 0 }, // +full orange
-  { minScore: 1200,  activeColors: 7, activeHalfColors: 0 }, // +full yellow
-  { minScore: 2100,  activeColors: 8, activeHalfColors: 0 }, // +full cyan (all 8 full)
-  { minScore: 4000,  activeColors: 8, activeHalfColors: 1 }, // +half green  (+1900)
-  { minScore: 6000,  activeColors: 8, activeHalfColors: 2 }, // +half blue   (+2000)
-  { minScore: 8500,  activeColors: 8, activeHalfColors: 3 }, // +half red    (+2500)
-  { minScore: 11500, activeColors: 8, activeHalfColors: 4 }, // +half navy   (+3000)
-  { minScore: 15000, activeColors: 8, activeHalfColors: 5 }, // +half gray   (+3500)
-  { minScore: 19000, activeColors: 8, activeHalfColors: 6 }, // +half orange (+4000)
-  { minScore: 23500, activeColors: 8, activeHalfColors: 7 }, // +half yellow (+4500)
-  { minScore: 28500, activeColors: 8, activeHalfColors: 8 }, // +half cyan   (+5000, peak)
+  { minScore: 1500,  activeColors: 6, activeHalfColors: 0 }, // +full orange
+  { minScore: 3000,  activeColors: 7, activeHalfColors: 0 }, // +full yellow
+  { minScore: 5000,  activeColors: 8, activeHalfColors: 0 }, // +full cyan (all 8 full)
+  { minScore: 6900,  activeColors: 8, activeHalfColors: 1 }, // +half green  (+1900)
+  { minScore: 8900,  activeColors: 8, activeHalfColors: 2 }, // +half blue   (+2000)
+  { minScore: 11400, activeColors: 8, activeHalfColors: 3 }, // +half red    (+2500)
+  { minScore: 14400, activeColors: 8, activeHalfColors: 4 }, // +half navy   (+3000)
+  { minScore: 17900, activeColors: 8, activeHalfColors: 5 }, // +half gray   (+3500)
+  { minScore: 21900, activeColors: 8, activeHalfColors: 6 }, // +half orange (+4000)
+  { minScore: 26400, activeColors: 8, activeHalfColors: 7 }, // +half yellow (+4500)
+  { minScore: 31400, activeColors: 8, activeHalfColors: 8 }, // +half cyan   (+5000, peak)
 ]

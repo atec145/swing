@@ -35,10 +35,10 @@ function stateWith(seesaws: SeesawState[], nextBall: Ball, score = 0): GameState
   }
 }
 
-describe('AC: Score threshold prevents rock spawn below 500', () => {
-  it('score = 499: never spawns a rock', () => {
+describe('AC: Score threshold prevents rock spawn below ROCK_MIN_SCORE', () => {
+  it(`score = ${ROCK_MIN_SCORE - 1}: never spawns a rock`, () => {
     for (let i = 0; i < 5000; i++) {
-      const b = createBall(499)
+      const b = createBall(ROCK_MIN_SCORE - 1, 0, 999)
       expect(b.kind).not.toBe('rock')
     }
   })
